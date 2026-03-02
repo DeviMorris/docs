@@ -1,0 +1,365 @@
+---
+title: 'EmbedBuilder'
+description: 'Builder for constructing embed blocks in messages.'
+---
+
+`EmbedBuilder` is a builder pattern for creating `ApiEmbed`. The result is passed to `MessagePayload::add_embed` or `MessagePayload::add_embed_builder`.
+
+## Limits
+
+| Field | Maximum |
+|-------|---------|
+| `title` | 256 characters |
+| `description` | 4096 characters |
+| `fields` | 25 items |
+| `field.name` | 256 characters |
+| `field.value` | 1024 characters |
+| `footer.text` | 2048 characters |
+| `author.name` | 256 characters |
+| Total (all text fields combined) | 6000 characters |
+
+<Warning>
+  `build()` panics if the total length of all text fields exceeds 6000 characters. All string fields are automatically truncated to their individual limit when set.
+</Warning>
+
+---
+
+## Creating
+
+### `EmbedBuilder::new`
+
+```rust
+pub fn new() -> Self
+```
+
+Creates an empty builder.
+
+---
+
+### `EmbedBuilder::from_embed`
+
+```rust
+pub fn from_embed(data: ApiEmbed) -> Self
+```
+
+Creates a builder from an existing `ApiEmbed`. Use to edit an already-built embed.
+
+---
+
+## Methods
+
+### `title`
+
+```rust
+pub fn title(self, title: impl Into<String>) -> Self
+```
+
+Sets the embed title. Truncated to 256 characters.
+
+---
+
+### `description`
+
+```rust
+pub fn description(self, desc: impl Into<String>) -> Self
+```
+
+Sets the main text of the embed. Supports Markdown. Truncated to 4096 characters.
+
+---
+
+### `url`
+
+```rust
+pub fn url(self, url: impl Into<String>) -> Self
+```
+
+Makes the `title` a clickable link. Not displayed if `title` is not set.
+
+---
+
+### `color`
+
+```rust
+pub fn color(self, color: u32) -> Self
+```
+
+Sets the embed accent color as an RGB integer. Example: `0x5865F2`.
+
+---
+
+### `color_hex`
+
+```rust
+pub fn color_hex(self, hex: &str) -> Self
+```
+
+Sets the color from a hex string. Accepts `"#5865F2"` and `"5865F2"` formats. If the string is invalid, the color is not changed.
+
+---
+
+### `color_rgb`
+
+```rust
+pub fn color_rgb(self, r: u8, g: u8, b: u8) -> Self
+```
+
+Sets the color from R, G, B components.
+
+---
+
+### `timestamp`
+
+```rust
+pub fn timestamp(self, ts: impl Into<String>) -> Self
+```
+
+Sets a timestamp at the bottom of the embed. Accepts an ISO 8601 string (`"2024-01-15T12:00:00Z"`).
+
+<AccordionGroup>
+  <Accordion title="Example: current time as timestamp">
+
+```rust
+use std::time::{SystemTime, UNIX_EPOCH};
+
+let secs = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+
+let ts = format!("{secs}");
+
+let embed = EmbedBuilder::new()
+    .title("Event")
+    .timestamp(ts)
+    .build();
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `author`
+
+```rust
+pub fn author(
+    self,
+    name: impl Into<String>,
+    url: Option<String>,
+    icon_url: Option<String>,
+) -> Self
+```
+
+Sets the author block at the top of the embed.
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | Author name. Truncated to 256 characters. |
+| `url` | Link when clicking the author name. |
+| `icon_url` | URL of the author icon (displayed to the left of the name). |
+
+---
+
+### `footer`
+
+```rust
+pub fn footer(self, text: impl Into<String>, icon_url: Option<String>) -> Self
+```
+
+Sets the text and icon at the bottom of the embed. `text` is truncated to 2048 characters.
+
+---
+
+### `image`
+
+```rust
+pub fn image(self, url: impl Into<String>) -> Self
+```
+
+Sets a large image at the bottom of the embed.
+
+---
+
+### `thumbnail`
+
+```rust
+pub fn thumbnail(self, url: impl Into<String>) -> Self
+```
+
+Sets a small image in the top-right corner of the embed.
+
+---
+
+### `video`
+
+```rust
+pub fn video(self, url: impl Into<String>) -> Self
+```
+
+Sets an embedded video.
+
+---
+
+### `audio`
+
+```rust
+pub fn audio(self, url: impl Into<String>) -> Self
+```
+
+Sets embedded audio (Fluxer-specific).
+
+---
+
+### `field`
+
+```rust
+pub fn field(
+    self,
+    name: impl Into<String>,
+    value: impl Into<String>,
+    inline: bool,
+) -> Self
+```
+
+Adds a field to the embed.
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | Field heading. Truncated to 256 characters. |
+| `value` | Field content. Supports Markdown. Truncated to 1024 characters. |
+| `inline` | If `true`, fields are displayed side by side (up to 3 per row). |
+
+<Note>
+  Once the 25-field limit is reached, new fields are silently ignored - no panic.
+</Note>
+
+---
+
+### `build`
+
+```rust
+pub fn build(self) -> ApiEmbed
+```
+
+Finalizes the builder and returns an `ApiEmbed`. Panics if the total length of all text fields exceeds 6000 characters.
+
+---
+
+## ApiEmbed
+
+The resulting structure from the `fluxer_types` crate.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kind` | `Option<String>` | Embed type. Always `"rich"` for bots. |
+| `title` | `Option<String>` | Title. |
+| `description` | `Option<String>` | Main text. |
+| `url` | `Option<String>` | Title URL. |
+| `color` | `Option<u32>` | Accent color (RGB integer). |
+| `timestamp` | `Option<String>` | Timestamp (ISO 8601). |
+| `author` | `Option<ApiEmbedAuthor>` | Author block. |
+| `footer` | `Option<ApiEmbedFooter>` | Footer row. |
+| `image` | `Option<ApiEmbedMedia>` | Large image. |
+| `thumbnail` | `Option<ApiEmbedMedia>` | Thumbnail. |
+| `video` | `Option<ApiEmbedMedia>` | Video. |
+| `audio` | `Option<ApiEmbedMedia>` | Audio. |
+| `fields` | `Option<Vec<ApiEmbedField>>` | List of fields. `None` if no fields were added. |
+
+---
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Minimal embed">
+
+```rust
+use fluxer_builders::{EmbedBuilder, MessagePayload};
+
+let embed = EmbedBuilder::new()
+    .title("Title")
+    .color(0x5865F2)
+    .build();
+
+let payload = MessagePayload::new().add_embed(embed).build();
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+  <Accordion title="Full embed with fields, author, and footer">
+
+```rust
+let embed = EmbedBuilder::new()
+    .title("Server Report")
+    .description("Stats for the past 24 hours.")
+    .url("https://fluxer.app")
+    .color(0x57F287)
+    .author(
+        "FluxerBot",
+        None,
+        Some("https://fluxerusercontent.com/avatars/123/abc.png".to_string()),
+    )
+    .thumbnail("https://fluxerstatic.com/marketing/branding/logo-color.svg")
+    .field("Messages", "1 204", true)
+    .field("New members", "37", true)
+    .field("Active channels", "12", true)
+    .footer("Updated automatically", None)
+    .build();
+
+let payload = MessagePayload::new().add_embed(embed).build();
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+  <Accordion title="Embed with an image">
+
+```rust
+let embed = EmbedBuilder::new()
+    .title("Image of the day")
+    .image("https://example.com/image.png")
+    .color(0xFEE75C)
+    .build();
+
+let payload = MessagePayload::new().add_embed(embed).build();
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+  <Accordion title="Multiple embeds in one message">
+
+```rust
+let embed1 = EmbedBuilder::new()
+    .title("First block")
+    .color(0x5865F2)
+    .build();
+
+let embed2 = EmbedBuilder::new()
+    .title("Second block")
+    .color(0xED4245)
+    .build();
+
+let payload = MessagePayload::new()
+    .add_embed(embed1)
+    .add_embed(embed2)
+    .build();
+
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+  <Accordion title="Edit an existing embed">
+
+```rust
+let original: ApiEmbed = /* ... */;
+
+let updated = EmbedBuilder::from_embed(original)
+    .description("Updated description.")
+    .color(0xFEE75C)
+    .build();
+
+let payload = MessagePayload::new().add_embed(updated).build();
+message.edit(&rest, &payload).await?;
+```
+
+  </Accordion>
+</AccordionGroup>

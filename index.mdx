@@ -1,0 +1,56 @@
+---
+title: 'Fluxer.RUST'
+description: 'Rust library for building bots on the Fluxer platform.'
+---
+
+Fluxer.RUST is an async Rust library for working with the Fluxer API. Covers REST API, WebSocket Gateway, entity cache, and utility helpers.
+
+## Workspace structure
+
+The library is organized as a Cargo workspace. Each crate has a dedicated responsibility:
+
+| Crate | Purpose |
+|-------|---------|
+| `fluxer_core` | Client, cache, structures, collectors |
+| `fluxer_rest` | HTTP client, rate limiter |
+| `fluxer_ws` | WebSocket, sharding |
+| `fluxer_types` | API types, Gateway payloads, routes |
+| `fluxer_builders` | Message and embed builders |
+| `fluxer_util` | Permissions, Snowflake, CDN, formatting |
+
+## Dependencies
+
+| Crate | Version | Usage |
+|-------|---------|-------|
+| `tokio` | 1 | Async runtime (`rt-multi-thread`, `sync`, `time`) |
+| `reqwest` | 0.12 | HTTP client for REST API |
+| `tokio-tungstenite` | 0.24 | WebSocket connection |
+| `serde` / `serde_json` | 1 | Serialization / deserialization |
+| `dashmap` | 6 | Thread-safe HashMap for cache |
+| `bitflags` | 2 | Permission bitfields |
+| `thiserror` | 2 | Typed errors |
+| `tracing` | 0.1 | Logging |
+
+## Requirements
+
+- Rust edition **2024**
+- `tokio` runtime - the library is fully async, all logic runs inside `#[tokio::main]`
+
+<Note>
+  Fluxer does not support Discord-style intents. Always set `intents: 0` when creating `ClientOptions`.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Minimal working bot in 5 minutes.
+  </Card>
+  <Card title="Client" icon="bolt" href="/client/overview">
+    Initialization, event handling, login.
+  </Card>
+  <Card title="Structures" icon="layer-group" href="/structures/guild">
+    Guild, Channel, Message, User - fields and methods.
+  </Card>
+  <Card title="Builders" icon="wrench" href="/builders/message">
+    MessagePayload, EmbedBuilder, FileAttachment.
+  </Card>
+</CardGroup>

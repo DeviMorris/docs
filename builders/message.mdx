@@ -1,0 +1,332 @@
+---
+title: 'MessagePayload'
+description: 'Builder for constructing message bodies before sending.'
+---
+
+`MessagePayload` is a builder pattern for constructing `MessagePayloadData`. Used in all message sending methods: `channel.send`, `message.reply`, `message.edit`, etc.
+
+## MessagePayloadData
+
+The final structure passed to REST methods. All fields are optional during serialization - missing fields are not included in JSON.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | `Option<String>` | Text content. Maximum 2000 characters. |
+| `embeds` | `Option<Vec<ApiEmbed>>` | List of embed blocks. Maximum 10. |
+| `attachments` | `Option<Vec<AttachmentPayload>>` | Attachment metadata. Populated automatically when sending files. |
+| `message_reference` | `Option<ApiMessageReference>` | Reference to a message for a reply. |
+| `tts` | `Option<bool>` | Send as a TTS message. |
+| `flags` | `Option<u32>` | Message bitfield flags. |
+
+<Note>
+  `MessagePayloadData` implements `Serialize` and `Deserialize`, so it can be stored, cloned, and passed around like a regular data structure.
+</Note>
+
+---
+
+## MessagePayload
+
+Builder for `MessagePayloadData`. All methods take `self` and return `Self` - method chaining is supported.
+
+### Creating
+
+#### `MessagePayload::new`
+
+```rust
+pub fn new() -> Self
+```
+
+Creates an empty builder.
+
+---
+
+#### `MessagePayload::from_content`
+
+```rust
+pub fn from_content(content: impl Into<String>) -> Self
+```
+
+Creates a builder with `content` already set. Equivalent to `MessagePayload::new().content(content)`.
+
+---
+
+### Methods
+
+#### `content`
+
+```rust
+pub fn content(self, content: impl Into<String>) -> Self
+```
+
+Sets the text content of the message.
+
+<Warning>
+  Panics at runtime if the string length exceeds 2000 characters. Truncate text in advance using `fluxer_util::truncate` if the data source is not controlled.
+</Warning>
+
+---
+
+#### `embeds`
+
+```rust
+pub fn embeds(self, embeds: Vec<ApiEmbed>) -> Self
+```
+
+Sets the embed list entirely. Replaces any previously added embeds.
+
+<Warning>
+  Panics if `embeds.len() > 10`.
+</Warning>
+
+---
+
+#### `add_embed`
+
+```rust
+pub fn add_embed(self, embed: ApiEmbed) -> Self
+```
+
+Appends a single embed to the list.
+
+---
+
+#### `add_embed_builder`
+
+```rust
+pub fn add_embed_builder(self, builder: EmbedBuilder) -> Self
+```
+
+Calls `.build()` on the given `EmbedBuilder` and appends the result. Convenient for inline chaining without an intermediate variable.
+
+<AccordionGroup>
+  <Accordion title="Example: message with text and an embed">
+
+```rust
+use fluxer_builders::{EmbedBuilder, MessagePayload};
+
+let payload = MessagePayload::new()
+    .content("Operation result:")
+    .add_embed_builder(
+        EmbedBuilder::new()
+            .title("Success")
+            .description("Everything went fine.")
+            .color(0x57F287),
+    )
+    .build();
+
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `attachments`
+
+```rust
+pub fn attachments(self, attachments: Vec<AttachmentPayload>) -> Self
+```
+
+Sets the attachment metadata list manually. Not needed in most cases - metadata is generated automatically when calling `send_files`.
+
+---
+
+#### `reply`
+
+```rust
+pub fn reply(
+    self,
+    channel_id: impl Into<String>,
+    message_id: impl Into<String>,
+    guild_id: Option<String>,
+) -> Self
+```
+
+Sets `message_reference` to reply to a specific message.
+
+<Note>
+  When using `message.reply()` and `message.reply_with()`, the `message_reference` field is set automatically - calling `reply()` manually is not needed.
+</Note>
+
+<AccordionGroup>
+  <Accordion title="Example: manually set a reply reference">
+
+```rust
+let payload = MessagePayload::new()
+    .content("Replying to your message!")
+    .reply(&message.channel_id, &message.id, message.guild_id.clone())
+    .build();
+
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `tts`
+
+```rust
+pub fn tts(self, tts: bool) -> Self
+```
+
+If `true`, the message is read aloud via TTS for all channel members who have TTS enabled.
+
+---
+
+#### `flags`
+
+```rust
+pub fn flags(self, flags: u32) -> Self
+```
+
+Sets the message bitfield flags.
+
+---
+
+#### `attach_file`
+
+```rust
+pub fn attach_file(self, file: FileAttachment) -> Self
+```
+
+Adds a single file to the send. Files are stored inside the builder and included when calling `build_with_files` or `build_form`.
+
+---
+
+#### `attach_files`
+
+```rust
+pub fn attach_files(self, files: impl IntoIterator<Item = FileAttachment>) -> Self
+```
+
+Adds multiple files.
+
+---
+
+### Finalizing
+
+#### `build`
+
+```rust
+pub fn build(self) -> MessagePayloadData
+```
+
+Extracts `MessagePayloadData`. Files added via `attach_file` are **not included** in the result - use `build_with_files` or `build_form` to send with files.
+
+---
+
+#### `build_with_files`
+
+```rust
+pub fn build_with_files(self) -> (MessagePayloadData, Vec<FileAttachment>)
+```
+
+Returns `MessagePayloadData` and the file list separately. Use together with `rest.post_multipart`.
+
+---
+
+#### `build_form`
+
+```rust
+pub fn build_form(self) -> reqwest::multipart::Form
+```
+
+Assembles a ready-to-use `multipart::Form` for direct passing to `rest.post_multipart`. Includes `payload_json` and all attached files.
+
+---
+
+#### `has_files`
+
+```rust
+pub fn has_files(&self) -> bool
+```
+
+Returns `true` if at least one file has been attached to the builder.
+
+---
+
+## AttachmentPayload
+
+Attachment metadata. Generated automatically inside `build_multipart_form`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `u32` | Sequential file index (0, 1, 2, ...). |
+| `filename` | `String` | File name in the request. For spoilers, the `SPOILER_` prefix is added. |
+| `description` | `Option<String>` | Attachment description (displayed as alt text). |
+
+---
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Message with text only">
+
+```rust
+let payload = MessagePayload::new()
+    .content("Hello!")
+    .build();
+
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+  <Accordion title="Multiple embed blocks">
+
+```rust
+let embed1 = EmbedBuilder::new()
+    .title("Block 1")
+    .color(0x5865F2)
+    .build();
+
+let embed2 = EmbedBuilder::new()
+    .title("Block 2")
+    .color(0xED4245)
+    .build();
+
+let payload = MessagePayload::new()
+    .embeds(vec![embed1, embed2])
+    .build();
+
+channel.send(&rest, &payload).await?;
+```
+
+  </Accordion>
+  <Accordion title="Send with a file">
+
+```rust
+use fluxer_builders::{FileAttachment, MessagePayload};
+
+let file = FileAttachment::new("report.txt", b"Report contents".to_vec())
+    .content_type("text/plain")
+    .description("Daily report");
+
+let payload = MessagePayload::new()
+    .content("Here is the file:")
+    .build();
+
+channel.send_files(&rest, &payload, &[file]).await?;
+```
+
+  </Accordion>
+  <Accordion title="Reply with an embed using reply_with">
+
+```rust
+let embed = EmbedBuilder::new()
+    .title("Reply")
+    .description("This is a reply with an embed.")
+    .color(0xFEE75C)
+    .build();
+
+let payload = MessagePayload::new()
+    .add_embed(embed)
+    .build();
+
+message.reply_with(&rest, &payload).await?;
+```
+
+  </Accordion>
+</AccordionGroup>

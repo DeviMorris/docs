@@ -1,0 +1,415 @@
+---
+title: 'Message'
+description: 'Message structure and its methods.'
+---
+
+`Message` is the full representation of a message. Created when `MESSAGE_CREATE` and `MESSAGE_UPDATE` events are received.
+
+`PartialMessage` is a reduced version, available in `MESSAGE_DELETE`.
+
+## Message - Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Snowflake` | Unique message identifier. |
+| `channel_id` | `Snowflake` | ID of the channel the message belongs to. |
+| `guild_id` | `Option<Snowflake>` | Guild ID. `None` in DMs. |
+| `author` | `User` | Message author. |
+| `content` | `String` | Text content of the message. |
+| `timestamp` | `String` | Time sent (ISO 8601). |
+| `edited_timestamp` | `Option<String>` | Time of last edit. `None` if never edited. |
+| `pinned` | `bool` | Whether the message is pinned. |
+| `tts` | `bool` | Whether the message is TTS. |
+| `mention_everyone` | `bool` | Whether the message contains `@everyone` or `@here`. |
+| `mentions` | `Vec<User>` | Mentioned users. |
+| `mention_roles` | `Vec<Snowflake>` | IDs of mentioned roles. |
+| `embeds` | `Vec<ApiEmbed>` | Embedded rich content blocks. |
+| `attachments` | `Vec<ApiMessageAttachment>` | Attached files. |
+| `stickers` | `Vec<ApiMessageSticker>` | Attached stickers. |
+| `reactions` | `Vec<ApiMessageReaction>` | List of reactions. |
+| `message_reference` | `Option<ApiMessageReference>` | Reference to another message (for replies or forwards). |
+| `referenced_message` | `Option<Box<Message>>` | The message being replied to. May be absent even when `message_reference` is present. |
+| `message_type` | `MessageType` | Message type. |
+| `flags` | `Option<u32>` | Message bitfield flags. |
+| `nonce` | `Option<String>` | Arbitrary value for client-side message identification. |
+| `webhook_id` | `Option<Snowflake>` | Webhook ID if the message was sent via a webhook. |
+| `member_data` | `Option<Value>` | Raw JSON of member data from the event payload. |
+
+---
+
+## PartialMessage - Fields
+
+Available in `DispatchEvent::MessageDelete`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Snowflake` | ID of the deleted message. |
+| `channel_id` | `Snowflake` | Channel ID. |
+| `guild_id` | `Option<Snowflake>` | Guild ID. `None` in DMs. |
+| `content` | `Option<String>` | Content, if it was cached. |
+| `author_id` | `Option<Snowflake>` | Author ID, if it was cached. |
+
+---
+
+## Constructors
+
+### `Message::from_api`
+
+```rust
+pub fn from_api(data: &ApiMessage) -> Self
+```
+
+Creates a `Message` from a deserialized API response.
+
+---
+
+### `Message::from_value`
+
+```rust
+pub fn from_value(data: &Value) -> Option<Self>
+```
+
+Deserializes a `Message` from a `serde_json::Value`. Additionally stores the `member` field in `member_data` if present in the payload. Returns `None` on deserialization failure.
+
+---
+
+## Methods
+
+### Sending
+
+#### `send`
+
+```rust
+pub async fn send(
+    &self,
+    rest: &Rest,
+    body: &MessagePayloadData,
+) -> crate::Result<ApiMessage>
+```
+
+Sends a new message to the **same channel** as the current message.
+
+<AccordionGroup>
+  <Accordion title="Example">
+
+```rust
+let payload = MessagePayload::new()
+    .content("Received!")
+    .build();
+
+let sent = message.send(&rest, &payload).await?;
+println!("Sent: {}", sent.id);
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `send_files`
+
+```rust
+pub async fn send_files(
+    &self,
+    rest: &Rest,
+    body: &MessagePayloadData,
+    files: &[FileAttachment],
+) -> crate::Result<ApiMessage>
+```
+
+Sends a message with files to the same channel via multipart/form-data. See [Files](/builders/files) for details on `FileAttachment`.
+
+---
+
+#### `send_to`
+
+```rust
+pub async fn send_to(
+    &self,
+    rest: &Rest,
+    channel_id: &str,
+    body: &MessagePayloadData,
+) -> crate::Result<ApiMessage>
+```
+
+Sends a message to an **arbitrary channel** by ID.
+
+---
+
+### Replies
+
+#### `reply`
+
+```rust
+pub async fn reply(
+    &self,
+    rest: &Rest,
+    content: &str,
+) -> crate::Result<ApiMessage>
+```
+
+Replies to the message with the given text. `message_reference` is set automatically.
+
+<AccordionGroup>
+  <Accordion title="Example">
+
+```rust
+message.reply(&rest, "Got it!").await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `reply_with`
+
+```rust
+pub async fn reply_with(
+    &self,
+    rest: &Rest,
+    body: &MessagePayloadData,
+) -> crate::Result<ApiMessage>
+```
+
+Replies with an arbitrary `MessagePayloadData`. The `message_reference` field is set automatically - no need to fill it manually.
+
+---
+
+#### `reply_with_files`
+
+```rust
+pub async fn reply_with_files(
+    &self,
+    rest: &Rest,
+    body: &MessagePayloadData,
+    files: &[FileAttachment],
+) -> crate::Result<ApiMessage>
+```
+
+Replies with files. `message_reference` is set automatically.
+
+<AccordionGroup>
+  <Accordion title="Example: reply with an embed">
+
+```rust
+let embed = EmbedBuilder::new()
+    .title("Result")
+    .description("Operation completed.")
+    .color(0x57F287)
+    .build();
+
+let payload = MessagePayload::new().add_embed(embed).build();
+message.reply_with(&rest, &payload).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Edit and delete
+
+#### `edit`
+
+```rust
+pub async fn edit(
+    &self,
+    rest: &Rest,
+    body: &MessagePayloadData,
+) -> crate::Result<ApiMessage>
+```
+
+Edits the current message. Bots can only edit their **own** messages.
+
+<AccordionGroup>
+  <Accordion title="Example: send and edit after a delay">
+
+```rust
+let payload = MessagePayload::new().content("Loading...").build();
+let msg = channel.send(&rest, &payload).await?;
+
+tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+let edited_payload = MessagePayload::new().content("Done!").build();
+msg.edit(&rest, &edited_payload).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `delete`
+
+```rust
+pub async fn delete(&self, rest: &Rest) -> crate::Result<()>
+```
+
+Deletes the message.
+
+---
+
+#### `fetch`
+
+```rust
+pub async fn fetch(&self, rest: &Rest) -> crate::Result<ApiMessage>
+```
+
+Fetches the current message data from the API using `channel_id` and `id`.
+
+---
+
+### Reactions
+
+#### `add_reaction`
+
+```rust
+pub async fn add_reaction(&self, rest: &Rest, emoji: &str) -> crate::Result<()>
+```
+
+Adds a reaction from the bot. For Unicode: pass the character (`"👍"`). For custom emoji: `"name:id"`.
+
+#### `remove_reaction`
+
+```rust
+pub async fn remove_reaction(&self, rest: &Rest, emoji: &str) -> crate::Result<()>
+```
+
+Removes the bot's own reaction.
+
+#### `remove_user_reaction`
+
+```rust
+pub async fn remove_user_reaction(
+    &self,
+    rest: &Rest,
+    emoji: &str,
+    user_id: &str,
+) -> crate::Result<()>
+```
+
+Removes a specific user's reaction. Requires `MANAGE_MESSAGES`.
+
+#### `remove_all_reactions`
+
+```rust
+pub async fn remove_all_reactions(&self, rest: &Rest) -> crate::Result<()>
+```
+
+Removes all reactions with all emoji. Requires `MANAGE_MESSAGES`.
+
+#### `remove_reaction_emoji`
+
+```rust
+pub async fn remove_reaction_emoji(&self, rest: &Rest, emoji: &str) -> crate::Result<()>
+```
+
+Removes all reactions for a specific emoji.
+
+#### `fetch_reaction_users`
+
+```rust
+pub async fn fetch_reaction_users(
+    &self,
+    rest: &Rest,
+    emoji: &str,
+    limit: Option<u32>,
+    after: Option<&str>,
+) -> crate::Result<Vec<ApiUser>>
+```
+
+Returns the list of users who reacted with the specified emoji.
+
+| Parameter | Description |
+|-----------|-------------|
+| `emoji` | Unicode character or `"name:id"` for custom emoji. |
+| `limit` | Maximum number of users (1–100). |
+| `after` | Pagination: return users after this ID. |
+
+<AccordionGroup>
+  <Accordion title="Example: add a reaction and remove it after a delay">
+
+```rust
+message.add_reaction(&rest, "👍").await?;
+
+tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+message.remove_reaction(&rest, "👍").await?;
+```
+
+  </Accordion>
+  <Accordion title="Example: fetch users who reacted">
+
+```rust
+let users = message.fetch_reaction_users(&rest, "👍", Some(25), None).await?;
+for user in &users {
+    println!("{}", user.username);
+}
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Pinning
+
+#### `pin` / `unpin`
+
+```rust
+pub async fn pin(&self, rest: &Rest) -> crate::Result<()>
+pub async fn unpin(&self, rest: &Rest) -> crate::Result<()>
+```
+
+Pins or unpins the message in the channel. Requires `MANAGE_MESSAGES`.
+
+---
+
+### Attachments
+
+#### `delete_attachment`
+
+```rust
+pub async fn delete_attachment(
+    &self,
+    rest: &Rest,
+    attachment_id: &str,
+) -> crate::Result<()>
+```
+
+Deletes a specific attachment from the message.
+
+---
+
+### Helpers
+
+#### `mention_author`
+
+```rust
+pub fn mention_author(&self) -> String
+```
+
+Returns the author mention string in the format `<@user_id>`.
+
+---
+
+## MessageType
+
+Message type, available in the `message_type` field.
+
+| Value | Description |
+|-------|-------------|
+| `Default` | Regular user or bot message. |
+| `RecipientAdd` | User added to a group DM. |
+| `RecipientRemove` | User removed from a group DM. |
+| `Call` | System message about a call. |
+| `ChannelNameChange` | Channel name was changed. |
+| `ChannelIconChange` | Channel icon was changed. |
+| `ChannelPinnedMessage` | A message was pinned. |
+| `GuildMemberJoin` | A new member joined the guild. |
+| `Reply` | A reply to a message. |
+
+<Note>
+  A `Reply` type does not guarantee that `referenced_message` is populated. The original message may have been deleted.
+</Note>

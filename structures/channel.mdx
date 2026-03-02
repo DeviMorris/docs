@@ -1,0 +1,421 @@
+---
+title: 'Channel'
+description: 'Channel structure and its methods.'
+---
+
+`Channel` is the representation of a channel in the client cache. Covers text, voice, category, and DM channels.
+
+## Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Snowflake` | Unique channel identifier. |
+| `kind` | `u16` | Channel type. See ChannelType table below. |
+| `guild_id` | `Option<Snowflake>` | Guild ID. `None` for DMs and group chats. |
+| `name` | `Option<String>` | Channel name. |
+| `topic` | `Option<String>` | Channel topic. |
+| `url` | `Option<String>` | Channel URL (Fluxer-specific). |
+| `icon` | `Option<String>` | Icon hash (for group DMs). |
+| `owner_id` | `Option<Snowflake>` | Owner ID of a group DM. |
+| `position` | `Option<i32>` | Channel position in the list. |
+| `parent_id` | `Option<Snowflake>` | Parent category ID. |
+| `bitrate` | `Option<u32>` | Voice channel bitrate (bits/s). |
+| `user_limit` | `Option<u32>` | Voice channel user limit. `0` - no limit. |
+| `rtc_region` | `Option<String>` | Voice region. `None` - automatic selection. |
+| `last_message_id` | `Option<Snowflake>` | ID of the last message in the channel. |
+| `nsfw` | `bool` | Whether the channel is NSFW. |
+| `rate_limit_per_user` | `Option<u32>` | Slowmode in seconds. `0` - disabled. |
+| `permission_overwrites` | `Vec<ApiChannelOverwrite>` | Permission overwrites for roles and users. |
+
+---
+
+## ChannelType
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `0` | `GuildText` | Guild text channel. |
+| `1` | `Dm` | Direct message (DM). |
+| `2` | `GuildVoice` | Guild voice channel. |
+| `3` | `GroupDm` | Group DM. |
+| `4` | `GuildCategory` | Channel category. |
+
+---
+
+## Constructors
+
+### `Channel::from_api`
+
+```rust
+pub fn from_api(data: &ApiChannel) -> Self
+```
+
+Creates a `Channel` from an API response.
+
+---
+
+### `Channel::from_id`
+
+```rust
+pub fn from_id(id: impl Into<Snowflake>) -> Self
+```
+
+Creates an empty stub by ID. All fields except `id` take default values.
+
+---
+
+## Methods
+
+### Type checks
+
+```rust
+pub fn is_text(&self) -> bool
+pub fn is_voice(&self) -> bool
+pub fn is_category(&self) -> bool
+pub fn is_dm(&self) -> bool
+pub fn is_guild(&self) -> bool
+```
+
+| Method | Returns `true` when |
+|--------|---------------------|
+| `is_text()` | `kind == GuildText` or `kind == Dm`. |
+| `is_voice()` | `kind == GuildVoice`. |
+| `is_category()` | `kind == GuildCategory`. |
+| `is_dm()` | `kind == Dm`. |
+| `is_guild()` | `guild_id` is `Some`. |
+
+---
+
+### Helpers
+
+#### `display_name`
+
+```rust
+pub fn display_name(&self) -> &str
+```
+
+Returns `name` if set, otherwise `"unknown"`.
+
+---
+
+#### `mention`
+
+```rust
+pub fn mention(&self) -> String
+```
+
+Returns the channel mention string in the format `<#id>`.
+
+---
+
+#### `as_typed`
+
+```rust
+pub fn as_typed(&self) -> TypedChannel<'_>
+```
+
+Returns a `TypedChannel` - a typed representation of the channel based on its `kind`. Use for pattern matching on a specific channel type.
+
+---
+
+### Messages
+
+#### `send`
+
+```rust
+pub async fn send(
+    &self,
+    rest: &Rest,
+    body: &MessagePayloadData,
+) -> crate::Result<ApiMessage>
+```
+
+Sends a message to the channel.
+
+<AccordionGroup>
+  <Accordion title="Example">
+
+```rust
+let payload = MessagePayload::new()
+    .content("Hello!")
+    .build();
+
+let msg = channel.send(&rest, &payload).await?;
+println!("Sent: {}", msg.id);
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `send_files`
+
+```rust
+pub async fn send_files(
+    &self,
+    rest: &Rest,
+    payload: &MessagePayloadData,
+    files: &[FileAttachment],
+) -> crate::Result<ApiMessage>
+```
+
+Sends a message with files via multipart/form-data. See [Files](/builders/files) for details on `FileAttachment`.
+
+---
+
+#### `fetch_message`
+
+```rust
+pub async fn fetch_message(
+    &self,
+    rest: &Rest,
+    message_id: &str,
+) -> crate::Result<ApiMessage>
+```
+
+Fetches a message by ID.
+
+---
+
+#### `fetch_messages`
+
+```rust
+pub async fn fetch_messages(
+    &self,
+    rest: &Rest,
+    limit: Option<u32>,
+    before: Option<&str>,
+    after: Option<&str>,
+) -> crate::Result<Vec<ApiMessage>>
+```
+
+Returns the message history of the channel.
+
+| Parameter | Description |
+|-----------|-------------|
+| `limit` | Maximum number of messages (1–100). |
+| `before` | Return messages before this ID (backwards pagination). |
+| `after` | Return messages after this ID (forwards pagination). |
+
+<AccordionGroup>
+  <Accordion title="Example: last 10 messages">
+
+```rust
+let messages = channel.fetch_messages(&rest, Some(10), None, None).await?;
+for msg in &messages {
+    println!("{}: {}", msg.author.username, msg.content);
+}
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `send_typing`
+
+```rust
+pub async fn send_typing(&self, rest: &Rest) -> crate::Result<()>
+```
+
+Sends the "typing..." indicator. The effect lasts ~10 seconds or until a message is sent.
+
+---
+
+#### `bulk_delete_messages`
+
+```rust
+pub async fn bulk_delete_messages(
+    &self,
+    rest: &Rest,
+    message_ids: &[String],
+) -> crate::Result<()>
+```
+
+Bulk deletes messages. Accepts a list of message IDs.
+
+<Warning>
+  Fluxer may have restrictions on bulk deletion based on message age. Check the current API limits.
+</Warning>
+
+---
+
+### Pinned messages
+
+#### `pin_message` / `unpin_message`
+
+```rust
+pub async fn pin_message(&self, rest: &Rest, message_id: &str) -> crate::Result<()>
+pub async fn unpin_message(&self, rest: &Rest, message_id: &str) -> crate::Result<()>
+```
+
+Pins or unpins a message in the channel.
+
+#### `fetch_pinned_messages`
+
+```rust
+pub async fn fetch_pinned_messages(&self, rest: &Rest) -> crate::Result<Vec<ApiMessage>>
+```
+
+Returns the list of pinned messages.
+
+---
+
+### Invites
+
+#### `create_invite`
+
+```rust
+pub async fn create_invite(
+    &self,
+    rest: &Rest,
+    max_age: Option<u32>,
+    max_uses: Option<u32>,
+    temporary: Option<bool>,
+) -> crate::Result<ApiInvite>
+```
+
+Creates an invite for the channel.
+
+| Parameter | Description |
+|-----------|-------------|
+| `max_age` | Invite lifetime in seconds. `0` - permanent. |
+| `max_uses` | Maximum number of uses. `0` - unlimited. |
+| `temporary` | If `true`, the member is kicked on logout unless they received a role. |
+
+#### `fetch_invites`
+
+```rust
+pub async fn fetch_invites(&self, rest: &Rest) -> crate::Result<Vec<ApiInvite>>
+```
+
+Returns the list of channel invites.
+
+---
+
+### Webhooks
+
+#### `create_webhook`
+
+```rust
+pub async fn create_webhook(
+    &self,
+    rest: &Rest,
+    name: &str,
+    avatar: Option<&str>,
+) -> crate::Result<ApiWebhook>
+```
+
+Creates a webhook in the channel. `avatar` is a data URI image.
+
+#### `fetch_webhooks`
+
+```rust
+pub async fn fetch_webhooks(&self, rest: &Rest) -> crate::Result<Vec<ApiWebhook>>
+```
+
+Returns the list of channel webhooks.
+
+<AccordionGroup>
+  <Accordion title="Example: create a webhook and send a message">
+
+```rust
+let webhook = channel.create_webhook(&rest, "Notifier", None).await?;
+
+let token = webhook.token.as_deref().unwrap_or_default();
+let route = fluxer_types::Routes::webhook_execute(&webhook.id, token);
+
+let body = serde_json::json!({ "content": "Notification from webhook" });
+let _: serde_json::Value = rest.post(&route, Some(&body)).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Permissions
+
+#### `edit_permission`
+
+```rust
+pub async fn edit_permission(
+    &self,
+    rest: &Rest,
+    overwrite_id: &str,
+    body: &serde_json::Value,
+) -> crate::Result<()>
+```
+
+Creates or updates a permission overwrite for a role or user.
+
+Request body:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `allow` | `String` | Bitfield string of allowed permissions. |
+| `deny` | `String` | Bitfield string of denied permissions. |
+| `type` | `u8` | `0` - for a role, `1` - for a member. |
+
+#### `delete_permission`
+
+```rust
+pub async fn delete_permission(
+    &self,
+    rest: &Rest,
+    overwrite_id: &str,
+) -> crate::Result<()>
+```
+
+Deletes a permission overwrite.
+
+<AccordionGroup>
+  <Accordion title="Example: deny SEND_MESSAGES for a role">
+
+```rust
+let send_messages_bit = (1u64 << 11).to_string();
+
+let body = serde_json::json!({
+    "allow": "0",
+    "deny": send_messages_bit,
+    "type": 0
+});
+
+channel.edit_permission(&rest, "ROLE_ID", &body).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Edit and delete
+
+#### `edit`
+
+```rust
+pub async fn edit(&self, rest: &Rest, body: &serde_json::Value) -> crate::Result<ApiChannel>
+```
+
+Updates channel settings. Pass only the fields you want to change.
+
+#### `delete`
+
+```rust
+pub async fn delete(&self, rest: &Rest) -> crate::Result<()>
+```
+
+Deletes the channel.
+
+---
+
+### Group DM
+
+#### `add_recipient` / `remove_recipient`
+
+```rust
+pub async fn add_recipient(&self, rest: &Rest, user_id: &str) -> crate::Result<()>
+pub async fn remove_recipient(&self, rest: &Rest, user_id: &str) -> crate::Result<()>
+```
+
+Adds or removes a user from a group DM channel (`kind == 3`).

@@ -1,0 +1,108 @@
+---
+title: 'Quickstart'
+description: 'Minimal working bot on Fluxer.RUST.'
+---
+
+## Step 1. Create an application
+
+Open **User Settings → Applications** on [web.fluxer.app](https://web.fluxer.app), create a new application and save the bot token.
+
+## Step 2. Add dependencies
+
+In your project's `Cargo.toml`:
+
+```toml
+[package]
+name = "test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fluxer-core    = { path = "../Fluxer.RUST/core" }
+fluxer-builders = { path = "../Fluxer.RUST/builders" }
+fluxer-rest    = { path = "../Fluxer.RUST/rest" }
+tokio           = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = "0.1"
+
+```
+
+<Note>
+  Paths are relative to the workspace root. Adjust them to match your project structure.
+</Note>
+
+## Step 3. Minimal bot
+
+```rust
+use fluxer_core::client::{Client, ClientOptions};
+use fluxer_core::client::typed_events::DispatchEvent;
+use fluxer_builders::{EmbedBuilder, MessagePayload};
+use fluxer_rest::Rest;
+
+const TOKEN: &str = "TOKEN";
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt().with_env_filter("info").init();
+
+    let options = ClientOptions {
+        intents: 0,
+        wait_for_guilds: true,
+        ..Default::default()
+    };
+
+    let mut client = Client::new(options);
+    let rest: Rest = client.rest.clone();
+
+    client.on_typed(move |event| {
+        let rest = rest.clone();
+        Box::pin(async move {
+            match event {
+                DispatchEvent::Ready => {
+                    tracing::info!("Bot is ready");
+                }
+
+                DispatchEvent::MessageCreate { message, .. } => {
+                    if message.content.trim() == "!ping" {
+                        let embed = EmbedBuilder::new()
+                            .title("Pong!")
+                            .color(0x5865F2)
+                            .build();
+
+                        let payload = MessagePayload::new().add_embed(embed).build();
+
+                        if let Err(e) = message.send(&rest, &payload).await {
+                            tracing::error!("send: {e}");
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        })
+    });
+
+    if let Err(e) = client.login(TOKEN).await {
+        tracing::error!("login: {e:?}");
+    }
+}
+```
+
+## Step 4. Run
+
+```
+cargo run
+```
+
+## What happens
+
+| Step | Description |
+|------|-------------|
+| `Client::new(options)` | Creates the client. REST is ready immediately. |
+| `client.rest.clone()` | `Rest` is `Arc`-based - cloning is cheap, use it inside closures. |
+| `client.on_typed(...)` | Registers a typed event handler. Multiple handlers can be registered. |
+| `client.login(TOKEN)` | Connects to Gateway, receives `READY`, starts the event loop. Blocks until disconnected. |
+
+<Note>
+  `wait_for_guilds: true` delays the `Ready` event until all `GUILD_CREATE` events have been received. Set to `false` if you have many guilds and prefer a faster startup over a fully populated cache.
+</Note>

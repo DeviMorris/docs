@@ -1,0 +1,289 @@
+---
+title: 'Client'
+description: 'Client initialization, options, cache managers.'
+---
+
+`Client` is the central entry point of the library. It holds the cache, REST client, WebSocket connection, and event handlers.
+
+## ClientOptions
+
+Passed to `Client::new(options)`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `intents` | `u64` | `0` | Gateway intents. Fluxer does not use intents - always `0`. |
+| `presence` | `Option<GatewayPresenceUpdateSendData>` | `None` | Initial bot presence on connect. |
+| `rest` | `Option<RestOptions>` | `None` | REST client options. Defaults are used when `None`. |
+| `gateway_version` | `Option<String>` | `None` | Gateway version. Defaults to `"1"` when `None`. |
+| `wait_for_guilds` | `bool` | `false` | If `true`, the `Ready` event is delayed until all `GUILD_CREATE` events are received. |
+| `cache` | `CacheSizeLimits` | all `None` | Per-entity cache size limits. |
+
+## CacheSizeLimits
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `guilds` | `Option<usize>` | Maximum number of guilds in cache. |
+| `channels` | `Option<usize>` | Maximum number of channels in cache. |
+| `users` | `Option<usize>` | Maximum number of users in cache. |
+| `members` | `Option<usize>` | Maximum number of members (across all guilds) in cache. |
+
+<Note>
+  When a limit is exceeded, the oldest entries are evicted automatically after each `GUILD_CREATE`. If a limit is `None`, the cache is unbounded.
+</Note>
+
+## Client
+
+### Public fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rest` | `Rest` | REST client. `Arc`-based, cloning is cheap. |
+| `guilds` | `DashMap<String, Guild>` | Guild cache. |
+| `channels` | `DashMap<String, Channel>` | Channel cache. |
+| `users` | `DashMap<String, User>` | User cache. |
+| `members` | `DashMap<String, DashMap<String, GuildMember>>` | Member cache: `guild_id → user_id → GuildMember`. |
+
+### Methods
+
+<a id="new"></a>
+
+#### `Client::new`
+
+```rust
+pub fn new(options: ClientOptions) -> Self
+```
+
+Creates the client. REST is initialized immediately. The WebSocket connection is not established until `login` is called.
+
+---
+
+<a id="on"></a>
+
+#### `on`
+
+```rust
+pub fn on<F, Fut>(&mut self, event: &str, callback: F)
+where
+    F: Fn(Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+```
+
+Registers a raw event handler by name. Data is delivered as `serde_json::Value` without type information. String constants for event names are available via `Events::MESSAGE_CREATE`, etc.
+
+Multiple handlers can be registered for the same event - all are called in order.
+
+<AccordionGroup>
+  <Accordion title="Example">
+
+```rust
+client.on(Events::MESSAGE_CREATE, |data| async move {
+    println!("{data}");
+});
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+<a id="on_typed"></a>
+
+#### `on_typed`
+
+```rust
+pub fn on_typed<F, Fut>(&mut self, callback: F)
+where
+    F: Fn(DispatchEvent) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+```
+
+Registers a typed event handler. Receives a `DispatchEvent` - an enum with concrete variants for each event. This is the preferred way to handle events.
+
+<AccordionGroup>
+  <Accordion title="Example">
+
+```rust
+client.on_typed(move |event| {
+    Box::pin(async move {
+        match event {
+            DispatchEvent::Ready => {
+                tracing::info!("ready");
+            }
+            DispatchEvent::MessageCreate { message, .. } => {
+                println!("{}", message.content);
+            }
+            _ => {}
+        }
+    })
+});
+```
+
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  The closure must return `Box::pin(async move { ... })`. All values used inside must be cloned before entering the closure, as it is called repeatedly.
+</Note>
+
+---
+
+<a id="login"></a>
+
+#### `login`
+
+```rust
+pub async fn login(&mut self, token: impl Into<String>) -> crate::Result<()>
+```
+
+Sets the token in REST, connects to Gateway, and starts the WebSocket event loop. **Blocks execution** until the connection is dropped or `destroy` is called.
+
+---
+
+<a id="user"></a>
+
+#### `user`
+
+```rust
+pub fn user(&self) -> Option<&ClientUser>
+```
+
+Returns the bot's own user data received in the `READY` event. Returns `None` before login.
+
+---
+
+<a id="is_ready"></a>
+
+#### `is_ready` / `ready_at`
+
+```rust
+pub fn is_ready(&self) -> bool
+pub fn ready_at(&self) -> Option<std::time::Instant>
+```
+
+`is_ready` - `true` after `READY` is received and (if `wait_for_guilds: true`) all `GUILD_CREATE` events have been processed.
+
+`ready_at` - the instant the ready flag was set.
+
+---
+
+<a id="send_to_gateway"></a>
+
+#### `send_to_gateway` / `send_to_shard`
+
+```rust
+pub async fn send_to_gateway(&self, payload: Value)
+pub async fn send_to_shard(&self, shard_id: u32, payload: Value) -> Result<(), String>
+```
+
+Sends a raw JSON payload to Gateway. `send_to_gateway` broadcasts to all shards. `send_to_shard` targets a specific shard.
+
+<AccordionGroup>
+  <Accordion title="Example: manually update presence">
+
+```rust
+let payload = serde_json::json!({
+    "op": 3,
+    "d": {
+        "status": "online",
+        "afk": false,
+        "since": null,
+        "activities": []
+    }
+});
+client.send_to_gateway(payload).await;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+<a id="create_collectors"></a>
+
+#### `create_message_collector` / `create_reaction_collector`
+
+```rust
+pub fn create_message_collector(&mut self, options: MessageCollectorOptions) -> MessageCollector
+pub fn create_reaction_collector(&mut self, options: ReactionCollectorOptions) -> ReactionCollector
+```
+
+Creates a collector for gathering messages or reactions. See [Collectors](/client/collectors) for details.
+
+---
+
+<a id="fetch_instance"></a>
+
+#### `fetch_instance`
+
+```rust
+pub async fn fetch_instance(&self) -> crate::Result<Value>
+```
+
+Returns information about the Fluxer instance (`GET /instance`).
+
+---
+
+<a id="destroy"></a>
+
+#### `destroy`
+
+```rust
+pub fn destroy(&mut self)
+```
+
+Terminates the WebSocket connection and resets client state. After calling this, `login` will return or error out.
+
+---
+
+## Managers
+
+Managers are thin wrappers that combine cache and REST. They are constructed on the fly from references to client fields. They are not stored as fields on `Client` - create them right before use.
+
+```rust
+let gm = client.guilds(&client.rest);
+let cm = client.channels(&client.rest);
+let um = client.users(&client.rest);
+```
+
+### GuildManager
+
+| Method | Description |
+|--------|-------------|
+| `get(id)` | Returns a guild from cache. `None` if not present. |
+| `fetch(id)` | Fetches the guild via REST, updates cache. |
+| `resolve(id)` | Returns from cache, falls back to `fetch`. |
+
+### ChannelManager
+
+| Method | Description |
+|--------|-------------|
+| `get(id)` | Returns a channel from cache. |
+| `fetch(id)` | Fetches the channel via REST, updates cache. |
+| `resolve(id)` | Cache → REST fallback. |
+| `send(channel_id, body)` | Sends a message to a channel without going through the `Channel` structure. |
+| `fetch_message(channel_id, message_id)` | Fetches a message by ID. |
+
+### UsersManager
+
+| Method | Description |
+|--------|-------------|
+| `get(id)` | Returns a user from cache. |
+| `fetch(id)` | Fetches the user via REST. |
+| `resolve(id)` | Cache → REST fallback. |
+| `fetch_with_profile(id)` | Returns `ApiProfileResponse` - extended profile data. |
+
+## Error handling
+
+All async client methods return `crate::Result<T>`, where `Error` is:
+
+| Variant | Description |
+|---------|-------------|
+| `Error::ClientNotReady` | Method called before `login` completed. |
+| `Error::InvalidToken` | Token rejected by Gateway. |
+| `Error::AlreadyLoggedIn` | `login` called more than once. |
+| `Error::Api(FluxerApiError)` | API returned a structured error with code and message. |
+| `Error::Http(HttpError)` | HTTP error without a recognized API response body. |
+| `Error::RateLimit(RateLimitError)` | Rate limit exhausted after all retry attempts. |
+| `Error::Rest(RestError)` | Network or JSON error. |
+| `Error::WebSocket(String)` | WebSocket connection error. |
+| `Error::Other(String)` | Miscellaneous errors. |

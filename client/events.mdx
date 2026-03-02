@@ -1,0 +1,226 @@
+---
+title: 'Events'
+description: 'DispatchEvent - typed Gateway events. Events - string name constants.'
+---
+
+The library provides two ways to subscribe to Gateway events:
+
+- **`on_typed`** - receives a `DispatchEvent`, a typed enum. Recommended.
+- **`on`** - receives a `serde_json::Value` by string event name.
+
+## DispatchEvent
+
+`enum` from `fluxer_core::client::typed_events`. All variants are marked `#[non_exhaustive]` - always include `_ => {}` in your `match`.
+
+### Ready
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `Ready` | - | Client is ready to operate. Guaranteed only after `login` completes. |
+
+### Messages
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `MessageCreate` | `message: Message`, `member: Option<GuildMember>` | New message. `member` is populated when the message comes from a guild. |
+| `MessageUpdate` | `message: Message` | Message was edited. |
+| `MessageDelete` | `message: PartialMessage` | Message was deleted. Contains only `id`, `channel_id`, `guild_id`. |
+| `MessageDeleteBulk` | `ids: Vec<Snowflake>`, `channel_id`, `guild_id?` | Multiple messages deleted at once. |
+
+### Reactions
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `MessageReactionAdd` | `reaction: MessageReaction` | Reaction added to a message. |
+| `MessageReactionRemove` | `reaction: MessageReaction` | A single reaction removed. |
+| `MessageReactionRemoveAll` | `message_id`, `channel_id`, `guild_id?` | All reactions removed from a message. |
+| `MessageReactionRemoveEmoji` | `message_id`, `channel_id`, `guild_id?`, `emoji_name`, `emoji_id?` | All reactions for a specific emoji removed. |
+
+### Guilds
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `GuildCreate` | `guild: Guild` | Bot added to a guild, or existing guild data received at startup. |
+| `GuildUpdate` | `guild: Guild` | Guild settings updated. |
+| `GuildDelete` | `guild_id: Snowflake`, `unavailable: bool` | Bot removed from a guild, or the guild became unavailable. |
+| `GuildEmojisUpdate` | `guild_id: Snowflake`, `emoji_ids: Vec<Snowflake>` | Guild emoji list updated. |
+
+### Members
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `GuildMemberAdd` | `member: GuildMember` | A new member joined the guild. |
+| `GuildMemberUpdate` | `guild_id`, `user: User`, `nick?`, `roles: Vec<Snowflake>` | Member updated (nick, roles). |
+| `GuildMemberRemove` | `guild_id: Snowflake`, `user: User` | Member left the guild. |
+
+### Bans
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `GuildBanAdd` | `ban: GuildBan` | User was banned. `GuildBan` contains `guild_id`, `user`, `reason?`. |
+| `GuildBanRemove` | `guild_id: Snowflake`, `user: User` | Ban was lifted. |
+
+### Roles
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `GuildRoleCreate` | `guild_id: Snowflake`, `role: Role` | Role created. |
+| `GuildRoleUpdate` | `guild_id: Snowflake`, `role: Role` | Role updated. |
+| `GuildRoleDelete` | `guild_id: Snowflake`, `role_id: Snowflake` | Role deleted. |
+
+### Channels
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `ChannelCreate` | `channel: Channel` | Channel created. |
+| `ChannelUpdate` | `channel: Channel` | Channel updated. |
+| `ChannelDelete` | `channel: Channel` | Channel deleted. |
+
+### Invites
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `InviteCreate` | `invite: Invite` | Invite created. |
+| `InviteDelete` | `code: String`, `channel_id`, `guild_id?` | Invite deleted. |
+
+### Other
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `UserUpdate` | `user: User` | The bot's own user data was updated. |
+| `TypingStart` | `channel_id`, `user_id`, `guild_id?`, `timestamp: u64` | Someone started typing. |
+| `VoiceStateUpdate` | `data: GatewayVoiceStateUpdateData` | Voice connection state changed. |
+| `VoiceServerUpdate` | `data: GatewayVoiceServerUpdateData` | Voice server parameters updated. |
+| `PresenceUpdate` | `data: GatewayPresenceUpdateData` | User online status changed. |
+| `InteractionCreate` | `data: serde_json::Value` | Interaction received (slash command, etc.). Passed as raw JSON - no typed representation. |
+| `Debug` | `message: String` | Internal diagnostic messages from the library. |
+| `Error` | `message: String` | Internal event processing error. |
+| `Raw` | `event_name: String`, `data: serde_json::Value` | Event with no typed variant. |
+
+---
+
+## MessageReaction
+
+Structure used in `MessageReactionAdd` and `MessageReactionRemove`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message_id` | `Snowflake` | Message ID. |
+| `channel_id` | `Snowflake` | Channel ID. |
+| `guild_id` | `Option<Snowflake>` | Guild ID. `None` in DMs. |
+| `user_id` | `Snowflake` | ID of the user who reacted. |
+| `emoji_id` | `Option<Snowflake>` | Custom emoji ID. `None` for Unicode emoji. |
+| `emoji_name` | `String` | Emoji name or Unicode character. |
+| `emoji_animated` | `bool` | Whether the emoji is animated. |
+
+---
+
+## Events
+
+String name constants for use with `client.on(...)`.
+
+```rust
+use fluxer_core::Events;
+
+client.on(Events::MESSAGE_CREATE, |data| async move {
+    println!("{data}");
+});
+```
+
+| Constant | Value |
+|----------|-------|
+| `Events::READY` | `"READY"` |
+| `Events::RESUMED` | `"RESUMED"` |
+| `Events::MESSAGE_CREATE` | `"MESSAGE_CREATE"` |
+| `Events::MESSAGE_UPDATE` | `"MESSAGE_UPDATE"` |
+| `Events::MESSAGE_DELETE` | `"MESSAGE_DELETE"` |
+| `Events::MESSAGE_DELETE_BULK` | `"MESSAGE_DELETE_BULK"` |
+| `Events::MESSAGE_REACTION_ADD` | `"MESSAGE_REACTION_ADD"` |
+| `Events::MESSAGE_REACTION_REMOVE` | `"MESSAGE_REACTION_REMOVE"` |
+| `Events::MESSAGE_REACTION_REMOVE_ALL` | `"MESSAGE_REACTION_REMOVE_ALL"` |
+| `Events::MESSAGE_REACTION_REMOVE_EMOJI` | `"MESSAGE_REACTION_REMOVE_EMOJI"` |
+| `Events::GUILD_CREATE` | `"GUILD_CREATE"` |
+| `Events::GUILD_UPDATE` | `"GUILD_UPDATE"` |
+| `Events::GUILD_DELETE` | `"GUILD_DELETE"` |
+| `Events::GUILD_MEMBER_ADD` | `"GUILD_MEMBER_ADD"` |
+| `Events::GUILD_MEMBER_UPDATE` | `"GUILD_MEMBER_UPDATE"` |
+| `Events::GUILD_MEMBER_REMOVE` | `"GUILD_MEMBER_REMOVE"` |
+| `Events::GUILD_MEMBERS_CHUNK` | `"GUILD_MEMBERS_CHUNK"` |
+| `Events::GUILD_BAN_ADD` | `"GUILD_BAN_ADD"` |
+| `Events::GUILD_BAN_REMOVE` | `"GUILD_BAN_REMOVE"` |
+| `Events::GUILD_ROLE_CREATE` | `"GUILD_ROLE_CREATE"` |
+| `Events::GUILD_ROLE_UPDATE` | `"GUILD_ROLE_UPDATE"` |
+| `Events::GUILD_ROLE_DELETE` | `"GUILD_ROLE_DELETE"` |
+| `Events::GUILD_EMOJIS_UPDATE` | `"GUILD_EMOJIS_UPDATE"` |
+| `Events::GUILD_STICKERS_UPDATE` | `"GUILD_STICKERS_UPDATE"` |
+| `Events::GUILD_INTEGRATIONS_UPDATE` | `"GUILD_INTEGRATIONS_UPDATE"` |
+| `Events::CHANNEL_CREATE` | `"CHANNEL_CREATE"` |
+| `Events::CHANNEL_UPDATE` | `"CHANNEL_UPDATE"` |
+| `Events::CHANNEL_DELETE` | `"CHANNEL_DELETE"` |
+| `Events::CHANNEL_PINS_UPDATE` | `"CHANNEL_PINS_UPDATE"` |
+| `Events::INVITE_CREATE` | `"INVITE_CREATE"` |
+| `Events::INVITE_DELETE` | `"INVITE_DELETE"` |
+| `Events::TYPING_START` | `"TYPING_START"` |
+| `Events::VOICE_STATE_UPDATE` | `"VOICE_STATE_UPDATE"` |
+| `Events::VOICE_SERVER_UPDATE` | `"VOICE_SERVER_UPDATE"` |
+| `Events::PRESENCE_UPDATE` | `"PRESENCE_UPDATE"` |
+| `Events::WEBHOOKS_UPDATE` | `"WEBHOOKS_UPDATE"` |
+| `Events::INTERACTION_CREATE` | `"INTERACTION_CREATE"` |
+| `Events::USER_UPDATE` | `"USER_UPDATE"` |
+| `Events::ERROR` | `"ERROR"` |
+| `Events::DEBUG` | `"DEBUG"` |
+
+---
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Handling multiple events with on_typed">
+
+```rust
+client.on_typed(move |event| {
+    Box::pin(async move {
+        match event {
+            DispatchEvent::MessageCreate { message, .. } => {
+                println!("New message: {}", message.content);
+            }
+            DispatchEvent::GuildMemberAdd { member } => {
+                println!("New member: {}", member.user.username);
+            }
+            DispatchEvent::MessageReactionAdd { reaction } => {
+                println!("Reaction {} from {}", reaction.emoji_name, reaction.user_id);
+            }
+            DispatchEvent::GuildDelete { guild_id, unavailable } => {
+                println!("Guild {guild_id} unavailable: {unavailable}");
+            }
+            _ => {}
+        }
+    })
+});
+```
+
+  </Accordion>
+  <Accordion title="Assign a role on reaction">
+
+```rust
+client.on_typed(move |event| {
+    let rest = rest.clone();
+    Box::pin(async move {
+        if let DispatchEvent::MessageReactionAdd { reaction } = event {
+            if reaction.emoji_name == "✅" {
+                if let Some(guild_id) = &reaction.guild_id {
+                    let route = fluxer_types::Routes::guild_member_role(
+                        guild_id,
+                        &reaction.user_id,
+                        "ROLE_ID_HERE",
+                    );
+                    let _ = rest.put_empty(&route).await;
+                }
+            }
+        }
+    })
+});
+```
+
+  </Accordion>
+</AccordionGroup>

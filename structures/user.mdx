@@ -1,0 +1,313 @@
+---
+title: 'User / GuildMember'
+description: 'User, guild member, and bot account structures.'
+---
+
+## User
+
+Representation of a Fluxer user. Stored in the `client.users` cache.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Snowflake` | Unique user identifier. |
+| `username` | `String` | Username. |
+| `discriminator` | `String` | Discriminator (e.g. `"0"` if unused). |
+| `global_name` | `Option<String>` | Display name. Takes precedence over `username` when set. |
+| `avatar` | `Option<String>` | Avatar hash. `None` if using the default avatar. |
+| `bot` | `bool` | `true` if the account is a bot. |
+| `avatar_color` | `Option<u32>` | Default avatar color (RGB integer). |
+| `flags` | `Option<u32>` | Account bitfield flags (public). |
+| `system` | `bool` | `true` for Fluxer system accounts. |
+| `banner` | `Option<String>` | Profile banner hash. |
+
+---
+
+### Constructors
+
+#### `User::from_api`
+
+```rust
+pub fn from_api(data: &ApiUser) -> Self
+```
+
+Creates a `User` from an API response. `flags` is taken from `flags` or `public_flags` - whichever is non-empty first.
+
+---
+
+#### `User::unknown`
+
+```rust
+pub fn unknown() -> Self
+```
+
+Returns a stub with `username = "Unknown"` and an empty `id`. Use when user data is unavailable.
+
+---
+
+### Methods
+
+#### `display_name`
+
+```rust
+pub fn display_name(&self) -> &str
+```
+
+Returns `global_name` if set, otherwise `username`.
+
+---
+
+#### `mention`
+
+```rust
+pub fn mention(&self) -> String
+```
+
+Returns the mention string in the format `<@id>`. The `Display` trait is implemented identically.
+
+---
+
+#### `avatar_url`
+
+```rust
+pub fn avatar_url(&self, opts: &CdnOptions) -> Option<String>
+```
+
+Returns the user's avatar URL. `None` if `avatar` is `None`.
+
+URL format: `https://fluxerusercontent.com/avatars/{user_id}/{hash}.{ext}`.
+
+For animated avatars (hash starts with `a_`) the extension is automatically set to `gif`.
+
+---
+
+#### `display_avatar_url`
+
+```rust
+pub fn display_avatar_url(&self, opts: &CdnOptions) -> String
+```
+
+Same as `avatar_url`, but falls back to the default avatar URL (`https://fluxerstatic.com/avatars/{index}.png`) instead of returning `None`.
+
+---
+
+#### `banner_url`
+
+```rust
+pub fn banner_url(&self, opts: &CdnOptions) -> Option<String>
+```
+
+Returns the profile banner URL. `None` if `banner` is `None`.
+
+---
+
+#### `create_dm`
+
+```rust
+pub async fn create_dm(&self, rest: &Rest) -> crate::Result<ApiChannel>
+```
+
+Opens a DM channel with the user. If the channel already exists, it is returned without creating a new one.
+
+<AccordionGroup>
+  <Accordion title="Example: open a DM and send a message">
+
+```rust
+let dm_channel = user.create_dm(&rest).await?;
+
+let payload = MessagePayload::new()
+    .content("Hey, this is a DM!")
+    .build();
+
+let route = fluxer_types::Routes::channel_messages(&dm_channel.id);
+let _: serde_json::Value = rest.post(&route, Some(&payload)).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+#### `patch`
+
+```rust
+pub fn patch(&mut self, data: &ApiUser)
+```
+
+Updates `User` fields with data from the API. Called automatically by the client on `USER_UPDATE` and when a cached user is encountered again.
+
+---
+
+## GuildMember
+
+Representation of a guild member. Stored in the `client.members[guild_id][user_id]` cache.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user` | `User` | User data. |
+| `guild_id` | `Snowflake` | ID of the guild this member belongs to. |
+| `nick` | `Option<String>` | Member's guild nickname. `None` if not set. |
+| `roles` | `Vec<Snowflake>` | List of role IDs the member has. |
+| `joined_at` | `Option<String>` | Date the member joined the guild (ISO 8601). |
+| `premium_since` | `Option<String>` | Date the member started boosting the guild. `None` if not boosting. |
+| `deaf` | `bool` | Whether the member is server-deafened in a voice channel. |
+| `mute` | `bool` | Whether the member is server-muted in a voice channel. |
+| `pending` | `Option<bool>` | Whether the member has passed the membership screening. |
+| `communication_disabled_until` | `Option<String>` | Timeout expiry date. `None` if no active timeout. |
+
+---
+
+### Constructors
+
+#### `GuildMember::from_api`
+
+```rust
+pub fn from_api(data: &ApiGuildMember, guild_id: &str) -> Self
+```
+
+Creates a `GuildMember` from an API response and a guild ID.
+
+---
+
+### Methods
+
+#### `display_name`
+
+```rust
+pub fn display_name(&self) -> &str
+```
+
+Returns `nick` if set, otherwise `user.display_name()`.
+
+---
+
+#### `mention`
+
+```rust
+pub fn mention(&self) -> String
+```
+
+Returns the member mention string in the format `<@user_id>`.
+
+---
+
+#### `has_role`
+
+```rust
+pub fn has_role(&self, role_id: &str) -> bool
+```
+
+Returns `true` if the role ID is in `roles`.
+
+---
+
+#### `timeout_active`
+
+```rust
+pub fn timeout_active(&self) -> bool
+```
+
+Returns `true` if `communication_disabled_until` is set and the date has not yet passed.
+
+<AccordionGroup>
+  <Accordion title="Example: check a member's role and display their nick">
+
+```rust
+if let DispatchEvent::GuildMemberAdd { member } = event {
+    println!(
+        "Joined: {} (nick: {})",
+        member.user.username,
+        member.nick.as_deref().unwrap_or("none")
+    );
+
+    if member.has_role("SOME_ROLE_ID") {
+        println!("Member already has the target role");
+    }
+}
+```
+
+  </Accordion>
+  <Accordion title="Example: fetch a member via REST">
+
+```rust
+let api_member = guild.fetch_member(&rest, "USER_ID").await?;
+let member = GuildMember::from_api(&api_member, &guild.id);
+
+println!(
+    "{} joined: {}",
+    member.display_name(),
+    member.joined_at.as_deref().unwrap_or("unknown")
+);
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## ClientUser
+
+The bot's own account data. Available via `client.user()` after a successful `login`.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Snowflake` | Bot account ID. |
+| `username` | `String` | Bot username. |
+| `discriminator` | `String` | Discriminator. |
+| `global_name` | `Option<String>` | Display name. |
+| `avatar` | `Option<String>` | Avatar hash. |
+| `bot` | `bool` | Always `true` for a bot. |
+| `flags` | `Option<u32>` | Account flags. |
+| `verified` | `Option<bool>` | Whether the account is verified. |
+| `email` | `Option<String>` | Email (only available via OAuth2). |
+
+---
+
+### Access
+
+```rust
+if let Some(me) = client.user() {
+    println!("Bot: {} ({})", me.username, me.id);
+}
+```
+
+<Warning>
+  `client.user()` returns `None` before `login` completes. Do not call it before the `Ready` event is received.
+</Warning>
+
+---
+
+## CdnOptions
+
+Used in `avatar_url`, `banner_url`, `icon_url`, and similar methods.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `size` | `Option<u32>` | Image size in pixels. Must be a power of two (16–4096). |
+| `extension` | `Option<String>` | File format: `"png"`, `"webp"`, `"jpg"`. Defaults to `"png"`. For animated hashes (`a_*`) always uses `"gif"`. |
+
+<AccordionGroup>
+  <Accordion title="Example: get a 256px avatar in webp format">
+
+```rust
+use fluxer_core::util::cdn::CdnOptions;
+
+let opts = CdnOptions {
+    size: Some(256),
+    extension: Some("webp".to_string()),
+};
+
+if let Some(url) = user.avatar_url(&opts) {
+    println!("Avatar: {url}");
+} else {
+    println!("Avatar: {}", user.display_avatar_url(&opts));
+}
+```
+
+  </Accordion>
+</AccordionGroup>

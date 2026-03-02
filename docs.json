@@ -1,0 +1,68 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Fluxer.RUST",
+  "colors": {
+    "primary": "#CE412B",
+    "light": "#F74C00",
+    "dark": "#1A0F0A"
+  },
+  "favicon": "favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["index", "quickstart"]
+          },
+          {
+            "group": "Client",
+            "pages": ["client/overview", "client/events", "client/collectors"]
+          },
+          {
+            "group": "Structures",
+            "pages": [
+              "structures/guild",
+              "structures/channel",
+              "structures/message",
+              "structures/user",
+              "structures/voice"
+            ]
+          },
+          {
+            "group": "Builders",
+            "pages": ["builders/message", "builders/embed", "builders/files"]
+          },
+          {
+            "group": "Networking",
+            "pages": ["rest", "gateway"]
+          },
+          {
+            "group": "Utilities",
+            "pages": ["util"]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "icon": "github",
+          "href": "https://github.com/DeviMorris/Fluxer.RUST"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "logo.png",
+    "dark": "logo.png"
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/DeviMorris/Fluxer.RUST"
+    }
+  }
+}

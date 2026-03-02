@@ -1,0 +1,394 @@
+---
+title: 'Guild'
+description: 'Guild structure and its methods.'
+---
+
+`Guild` is the representation of a server (guild) in the client cache. Created from `ApiGuild` when the `GUILD_CREATE` event is received.
+
+## Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Snowflake` | Unique guild identifier. |
+| `name` | `String` | Guild name. |
+| `icon` | `Option<String>` | Icon hash. |
+| `banner` | `Option<String>` | Banner hash. |
+| `splash` | `Option<String>` | Invite splash image hash. |
+| `owner_id` | `Snowflake` | ID of the guild owner. |
+| `features` | `Vec<String>` | List of enabled guild features. |
+| `verification_level` | `u8` | Verification level (0–4). |
+| `mfa_level` | `u8` | 2FA requirement for moderators (0–1). |
+| `nsfw_level` | `Option<u32>` | Guild NSFW level. |
+| `explicit_content_filter` | `u8` | Explicit content filter (0–2). |
+| `default_message_notifications` | `u8` | Default notification level (0 - all, 1 - mentions only). |
+| `system_channel_id` | `Option<Snowflake>` | Channel for system messages. |
+| `system_channel_flags` | `Option<u32>` | System channel flags. |
+| `rules_channel_id` | `Option<Snowflake>` | Rules channel (for Community guilds). |
+| `afk_channel_id` | `Option<Snowflake>` | AFK voice channel. |
+| `afk_timeout` | `Option<u32>` | AFK timeout in seconds. |
+| `vanity_url_code` | `Option<String>` | Custom invite URL code. |
+| `permissions` | `Option<String>` | Bot permissions in the guild (bitfield string). |
+| `roles` | `HashMap<Snowflake, Role>` | Guild role cache. Populated after `fetch_roles`. |
+| `channels` | `Vec<Snowflake>` | Channel IDs in the guild. |
+| `emojis` | `Vec<Snowflake>` | Emoji IDs in the guild. |
+| `member_count` | `Option<u64>` | Member count. Not always available. |
+
+---
+
+## Constructors
+
+### `Guild::from_api`
+
+```rust
+pub fn from_api(data: &ApiGuild) -> Self
+```
+
+Creates a `Guild` from an API response. The `roles`, `channels`, and `emojis` fields are initialized empty - populate them with separate requests as needed.
+
+---
+
+### `Guild::from_id`
+
+```rust
+pub fn from_id(id: impl Into<Snowflake>) -> Self
+```
+
+Creates an empty stub by ID. Use when you need a structure without data.
+
+---
+
+## Methods
+
+### CDN
+
+```rust
+pub fn icon_url(&self, opts: &CdnOptions) -> Option<String>
+pub fn banner_url(&self, opts: &CdnOptions) -> Option<String>
+pub fn splash_url(&self, opts: &CdnOptions) -> Option<String>
+```
+
+Returns image URLs for the guild. `None` if the hash is absent. For animated icons (hash starts with `a_`) the extension is automatically set to `gif`.
+
+`CdnOptions` lets you specify size and format:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `size` | `Option<u32>` | Image size in pixels (power of two). |
+| `extension` | `Option<String>` | File format (`"png"`, `"webp"`, `"jpg"`). Defaults to `"png"`. |
+
+---
+
+### Edit and delete
+
+#### `edit`
+
+```rust
+pub async fn edit(&self, rest: &Rest, body: &Value) -> crate::Result<ApiGuild>
+```
+
+Updates guild settings. Pass only the fields you want to change.
+
+#### `delete`
+
+```rust
+pub async fn delete(&self, rest: &Rest) -> crate::Result<()>
+```
+
+Deletes the guild. Owner only.
+
+#### `transfer_ownership`
+
+```rust
+pub async fn transfer_ownership(&self, rest: &Rest, new_owner_id: &str) -> crate::Result<ApiGuild>
+```
+
+Transfers guild ownership to another user.
+
+---
+
+### Channels
+
+#### `create_channel`
+
+```rust
+pub async fn create_channel(&self, rest: &Rest, body: &Value) -> crate::Result<ApiChannel>
+```
+
+Creates a channel in the guild.
+
+#### `fetch_channels`
+
+```rust
+pub async fn fetch_channels(&self, rest: &Rest) -> crate::Result<Vec<ApiChannel>>
+```
+
+Returns the list of all channels in the guild.
+
+#### `set_channel_positions`
+
+```rust
+pub async fn set_channel_positions(&self, rest: &Rest, positions: &Value) -> crate::Result<()>
+```
+
+Sets channel ordering.
+
+<AccordionGroup>
+  <Accordion title="Example: create a text channel">
+
+```rust
+let body = serde_json::json!({
+    "name": "general",
+    "type": 0
+});
+let channel = guild.create_channel(&rest, &body).await?;
+println!("Created channel: {}", channel.id);
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Members
+
+#### `fetch_member`
+
+```rust
+pub async fn fetch_member(&self, rest: &Rest, user_id: &str) -> crate::Result<ApiGuildMember>
+```
+
+Returns a guild member by user ID.
+
+#### `fetch_members`
+
+```rust
+pub async fn fetch_members(
+    &self,
+    rest: &Rest,
+    limit: Option<u32>,
+    after: Option<&str>,
+) -> crate::Result<Vec<ApiGuildMember>>
+```
+
+Returns a list of members. `limit` - max entries, `after` - pagination by ID.
+
+#### `kick`
+
+```rust
+pub async fn kick(&self, rest: &Rest, user_id: &str) -> crate::Result<()>
+```
+
+Kicks a member from the guild.
+
+---
+
+### Bans
+
+#### `ban`
+
+```rust
+pub async fn ban(&self, rest: &Rest, user_id: &str, reason: Option<&str>) -> crate::Result<()>
+```
+
+Bans a user.
+
+#### `unban`
+
+```rust
+pub async fn unban(&self, rest: &Rest, user_id: &str) -> crate::Result<()>
+```
+
+Lifts a ban.
+
+#### `fetch_bans`
+
+```rust
+pub async fn fetch_bans(&self, rest: &Rest) -> crate::Result<Vec<ApiBan>>
+```
+
+Returns the list of active bans in the guild.
+
+<AccordionGroup>
+  <Accordion title="Example: ban and list bans">
+
+```rust
+guild.ban(&rest, "USER_ID", Some("Rule violation")).await?;
+
+let bans = guild.fetch_bans(&rest).await?;
+for ban in &bans {
+    println!("Banned: {} - {}", ban.user.username, ban.reason.as_deref().unwrap_or("-"));
+}
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Roles
+
+#### `fetch_roles`
+
+```rust
+pub async fn fetch_roles(&mut self, rest: &Rest) -> crate::Result<Vec<Role>>
+```
+
+Fetches guild roles and updates the `guild.roles` field.
+
+#### `create_role`
+
+```rust
+pub async fn create_role(&mut self, rest: &Rest, body: &CreateRoleBody) -> crate::Result<Role>
+```
+
+Creates a new role.
+
+#### `add_role_to_member` / `remove_role_from_member`
+
+```rust
+pub async fn add_role_to_member(&self, rest: &Rest, user_id: &str, role_id: &str) -> crate::Result<()>
+pub async fn remove_role_from_member(&self, rest: &Rest, user_id: &str, role_id: &str) -> crate::Result<()>
+```
+
+Assigns or removes a role from a member.
+
+#### `set_role_positions`
+
+```rust
+pub async fn set_role_positions(&self, rest: &Rest, positions: &Value) -> crate::Result<Vec<ApiRole>>
+```
+
+Sets the role order.
+
+#### `resolve_role_id`
+
+```rust
+pub fn resolve_role_id(&self, role: &str) -> Option<String>
+```
+
+Looks up a role in `guild.roles` by ID or by name. Returns the ID if found. Requires `fetch_roles` to have been called first.
+
+<AccordionGroup>
+  <Accordion title="Example: create a role and assign it to a member">
+
+```rust
+use fluxer_types::role::CreateRoleBody;
+
+let body = CreateRoleBody {
+    name: Some("Moderator".to_string()),
+    color: Some(0x3498DB),
+    hoist: Some(true),
+    mentionable: Some(false),
+    permissions: None,
+};
+
+let role = guild.create_role(&rest, &body).await?;
+guild.add_role_to_member(&rest, "USER_ID", &role.id).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### Emoji
+
+#### `fetch_emojis` / `fetch_emoji`
+
+```rust
+pub async fn fetch_emojis(&self, rest: &Rest) -> crate::Result<Vec<ApiEmoji>>
+pub async fn fetch_emoji(&self, rest: &Rest, emoji_id: &str) -> crate::Result<ApiEmoji>
+```
+
+Returns all guild emoji or a specific one.
+
+#### `create_emoji`
+
+```rust
+pub async fn create_emoji(
+    &self,
+    rest: &Rest,
+    name: &str,
+    image: &str,
+    role_ids: Option<&[String]>,
+) -> crate::Result<ApiEmoji>
+```
+
+Creates a custom emoji. `image` is a data URI in the format `data:image/png;base64,...`.
+
+#### `bulk_create_emojis`
+
+```rust
+pub async fn bulk_create_emojis(
+    &self,
+    rest: &Rest,
+    emojis: &[(&str, &str)],
+) -> Vec<ApiEmoji>
+```
+
+Creates multiple emoji in a single call. Errors for individual emoji are ignored - only successfully created ones are returned.
+
+---
+
+### Stickers
+
+#### `fetch_stickers` / `create_sticker`
+
+```rust
+pub async fn fetch_stickers(&self, rest: &Rest) -> crate::Result<Vec<ApiSticker>>
+pub async fn create_sticker(&self, rest: &Rest, body: &Value) -> crate::Result<ApiSticker>
+```
+
+---
+
+### Invites and webhooks
+
+#### `fetch_invites`
+
+```rust
+pub async fn fetch_invites(&self, rest: &Rest) -> crate::Result<Vec<ApiInvite>>
+```
+
+#### `fetch_webhooks`
+
+```rust
+pub async fn fetch_webhooks(&self, rest: &Rest) -> crate::Result<Vec<ApiWebhook>>
+```
+
+#### `fetch_vanity_url`
+
+```rust
+pub async fn fetch_vanity_url(&self, rest: &Rest) -> crate::Result<Value>
+```
+
+Returns the guild's custom invite URL.
+
+---
+
+### Audit log
+
+#### `fetch_audit_logs`
+
+```rust
+pub async fn fetch_audit_logs(&self, rest: &Rest) -> crate::Result<ApiGuildAuditLog>
+```
+
+Returns audit log entries.
+
+---
+
+### Fluxer-specific settings
+
+```rust
+pub async fn set_text_channel_flexible_names(&self, rest: &Rest, enabled: bool) -> crate::Result<()>
+pub async fn set_detached_banner(&self, rest: &Rest, enabled: bool) -> crate::Result<()>
+pub async fn set_disallow_unclaimed_accounts(&self, rest: &Rest, enabled: bool) -> crate::Result<()>
+```
+
+Guild settings specific to Fluxer with no Discord API equivalent.
+
+| Method | Description |
+|--------|-------------|
+| `set_text_channel_flexible_names` | Enables or disables flexible text channel names. |
+| `set_detached_banner` | Controls the guild's detached banner. |
+| `set_disallow_unclaimed_accounts` | Prevents unactivated accounts from joining the guild. |

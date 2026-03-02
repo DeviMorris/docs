@@ -1,0 +1,437 @@
+---
+title: 'REST'
+description: 'HTTP client for working with the Fluxer REST API. Rate limiting, error handling, multipart.'
+---
+
+`Rest` is an asynchronous HTTP client built on top of `reqwest`. Used directly via `client.rest` or through struct methods (`guild.fetch_roles`, `channel.send`, etc.).
+
+`Rest` is based on `Arc` - cloning is cheap, pass it into closures via `.clone()`.
+
+## RestOptions
+
+Passed into `Rest::new(options)` or configured via `ClientOptions.rest`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_url` | `String` | `"https://api.fluxer.app/v1"` | Base API URL. Change when working with a self-hosted instance. |
+| `user_agent` | `String` | `"FluxerBot (Rust, 0.1)"` | Value of the `User-Agent` header. |
+| `timeout` | `Duration` | 15 seconds | Timeout per HTTP request. |
+| `max_retries` | `u32` | `3` | Maximum number of retry attempts on rate limit (429). |
+
+<AccordionGroup>
+  <Accordion title="Example: connecting to a self-hosted instance">
+
+```rust
+use fluxer_rest::RestOptions;
+use fluxer_core::client::{Client, ClientOptions};
+use std::time::Duration;
+
+let options = ClientOptions {
+    intents: 0,
+    rest: Some(RestOptions {
+        api_url: "https://api.myinstance.example.com/v1".to_string(),
+        timeout: Duration::from_secs(30),
+        ..Default::default()
+    }),
+    ..Default::default()
+};
+
+let client = Client::new(options);
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Rest
+
+### `Rest::new`
+
+```rust
+pub fn new(options: RestOptions) -> Self
+```
+
+Creates a REST client. The token is not set - call `set_token` before the first request. When used via `Client`, the token is set automatically during `login`.
+
+---
+
+### `set_token`
+
+```rust
+pub async fn set_token(&self, token: impl Into<String>)
+```
+
+Sets the authorization token. If the string does not start with `"Bot "` or `"Bearer "` - the prefix `"Bot "` is added automatically.
+
+---
+
+## Request Methods
+
+All methods take a route relative to `api_url` (e.g. `/channels/123/messages`) and return `Result<T, RestError>`.
+
+### `get`
+
+```rust
+pub async fn get<T: DeserializeOwned>(&self, route: &str) -> Result<T, RestError>
+```
+
+Executes a `GET` request. Deserializes the response into `T`.
+
+---
+
+### `post`
+
+```rust
+pub async fn post<T: DeserializeOwned>(
+    &self,
+    route: &str,
+    body: Option<&(impl Serialize + Sync)>,
+) -> Result<T, RestError>
+```
+
+Executes a `POST` request with an optional JSON body.
+
+---
+
+### `patch`
+
+```rust
+pub async fn patch<T: DeserializeOwned>(
+    &self,
+    route: &str,
+    body: Option<&(impl Serialize + Sync)>,
+) -> Result<T, RestError>
+```
+
+Executes a `PATCH` request with an optional JSON body.
+
+---
+
+### `put`
+
+```rust
+pub async fn put<T: DeserializeOwned>(
+    &self,
+    route: &str,
+    body: Option<&(impl Serialize + Sync)>,
+) -> Result<T, RestError>
+```
+
+Executes a `PUT` request with an optional JSON body.
+
+---
+
+### `put_empty`
+
+```rust
+pub async fn put_empty(&self, route: &str) -> Result<(), RestError>
+```
+
+Executes a `PUT` request without a body and expects no content in the response. Used for operations like assigning a role (`PUT /guilds/{id}/members/{user_id}/roles/{role_id}`).
+
+---
+
+### `delete_route`
+
+```rust
+pub async fn delete_route(&self, route: &str) -> Result<(), RestError>
+```
+
+Executes a `DELETE` request. Returns no response body.
+
+---
+
+### `post_multipart`
+
+```rust
+pub async fn post_multipart<T: DeserializeOwned>(
+    &self,
+    route: &str,
+    form: reqwest::multipart::Form,
+) -> Result<T, RestError>
+```
+
+Executes a `POST` request with `multipart/form-data`. Used for sending files. The `Content-Type` header is set automatically with the boundary.
+
+<AccordionGroup>
+  <Accordion title="Example: direct REST call without structs">
+
+```rust
+use fluxer_types::Routes;
+use serde_json::Value;
+
+// GET request
+let guild: Value = client.rest.get(&Routes::guild("GUILD_ID")).await?;
+
+// POST with body
+let body = serde_json::json!({ "content": "Hello!" });
+let msg: Value = client.rest
+    .post(&Routes::channel_messages("CHANNEL_ID"), Some(&body))
+    .await?;
+
+// DELETE without body
+client.rest.delete_route(&Routes::channel_message("CHANNEL_ID", "MSG_ID")).await?;
+```
+
+  </Accordion>
+  <Accordion title="Example: sending a file via post_multipart">
+
+```rust
+use fluxer_builders::{build_multipart_form, FileAttachment, MessagePayload};
+use fluxer_types::{message::ApiMessage, Routes};
+
+let file = FileAttachment::new("log.txt", b"data".to_vec())
+    .content_type("text/plain");
+
+let payload = MessagePayload::new().content("File:").build();
+let form = build_multipart_form(&payload, &[file]);
+
+let msg: ApiMessage = client.rest
+    .post_multipart(&Routes::channel_messages("CHANNEL_ID"), form)
+    .await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Routes
+
+`Routes` is a set of static methods for building API routes. All methods return `String` or `&'static str`.
+
+### Channels
+
+| Method | Route |
+|--------|-------|
+| `Routes::channel(id)` | `/channels/{id}` |
+| `Routes::channel_messages(id)` | `/channels/{id}/messages` |
+| `Routes::channel_message(channel_id, message_id)` | `/channels/{channel_id}/messages/{message_id}` |
+| `Routes::channel_bulk_delete(id)` | `/channels/{id}/messages/bulk-delete` |
+| `Routes::channel_pins(id)` | `/channels/{id}/messages/pins` |
+| `Routes::channel_pin(channel_id, message_id)` | `/channels/{channel_id}/messages/pins/{message_id}` |
+| `Routes::channel_pin_message(channel_id, message_id)` | `/channels/{channel_id}/pins/{message_id}` |
+| `Routes::channel_message_reactions(channel_id, message_id)` | `/channels/{channel_id}/messages/{message_id}/reactions` |
+| `Routes::channel_message_reaction(channel_id, message_id, emoji)` | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji}` |
+| `Routes::channel_webhooks(id)` | `/channels/{id}/webhooks` |
+| `Routes::channel_typing(id)` | `/channels/{id}/typing` |
+| `Routes::channel_invites(id)` | `/channels/{id}/invites` |
+| `Routes::channel_permission(channel_id, overwrite_id)` | `/channels/{channel_id}/permissions/{overwrite_id}` |
+| `Routes::channel_recipient(channel_id, user_id)` | `/channels/{channel_id}/recipients/{user_id}` |
+| `Routes::channel_message_attachment(channel_id, message_id, attachment_id)` | `/channels/{channel_id}/messages/{message_id}/attachments/{attachment_id}` |
+
+### Guilds
+
+| Method | Route |
+|--------|-------|
+| `Routes::guilds()` | `/guilds` |
+| `Routes::guild(id)` | `/guilds/{id}` |
+| `Routes::guild_delete(id)` | `/guilds/{id}/delete` |
+| `Routes::guild_channels(id)` | `/guilds/{id}/channels` |
+| `Routes::guild_members(id)` | `/guilds/{id}/members` |
+| `Routes::guild_member(guild_id, user_id)` | `/guilds/{guild_id}/members/{user_id}` |
+| `Routes::guild_member_role(guild_id, user_id, role_id)` | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` |
+| `Routes::guild_roles(id)` | `/guilds/{id}/roles` |
+| `Routes::guild_role(guild_id, role_id)` | `/guilds/{guild_id}/roles/{role_id}` |
+| `Routes::guild_bans(id)` | `/guilds/{id}/bans` |
+| `Routes::guild_ban(guild_id, user_id)` | `/guilds/{guild_id}/bans/{user_id}` |
+| `Routes::guild_invites(id)` | `/guilds/{id}/invites` |
+| `Routes::guild_audit_logs(id)` | `/guilds/{id}/audit-logs` |
+| `Routes::guild_emojis(id)` | `/guilds/{id}/emojis` |
+| `Routes::guild_emoji(guild_id, emoji_id)` | `/guilds/{guild_id}/emojis/{emoji_id}` |
+| `Routes::guild_stickers(id)` | `/guilds/{id}/stickers` |
+| `Routes::guild_sticker(guild_id, sticker_id)` | `/guilds/{guild_id}/stickers/{sticker_id}` |
+| `Routes::guild_webhooks(id)` | `/guilds/{id}/webhooks` |
+| `Routes::guild_vanity_url(id)` | `/guilds/{id}/vanity-url` |
+| `Routes::guild_transfer_ownership(id)` | `/guilds/{id}/transfer-ownership` |
+
+### Users
+
+| Method | Route |
+|--------|-------|
+| `Routes::user(id)` | `/users/{id}` |
+| `Routes::current_user()` | `/users/@me` |
+| `Routes::current_user_guilds()` | `/users/@me/guilds` |
+| `Routes::leave_guild(guild_id)` | `/users/@me/guilds/{guild_id}` |
+| `Routes::user_me_channels()` | `/users/@me/channels` |
+| `Routes::user_profile(id, guild_id)` | `/users/{id}/profile` or `/users/{id}/profile?guild_id={gid}` |
+
+### Other
+
+| Method | Route |
+|--------|-------|
+| `Routes::invite(code)` | `/invites/{code}` |
+| `Routes::webhook(id)` | `/webhooks/{id}` |
+| `Routes::webhook_execute(id, token)` | `/webhooks/{id}/{token}` |
+| `Routes::application_commands(app_id)` | `/applications/{app_id}/commands` |
+| `Routes::application_command(app_id, cmd_id)` | `/applications/{app_id}/commands/{cmd_id}` |
+| `Routes::interaction_callback(interaction_id, token)` | `/interactions/{interaction_id}/{token}/callback` |
+| `Routes::gateway_bot()` | `/gateway/bot` |
+| `Routes::instance()` | `/instance` |
+
+<Note>
+  The `Routes::channel_message_reaction` method automatically URL-encodes the `emoji` parameter. Pass the emoji as-is: a Unicode character (`"👍"`) or `"name:id"` for custom ones.
+</Note>
+
+---
+
+## Rate Limiting
+
+`RateLimitManager` manages rate limits automatically. No manual intervention is required.
+
+### Behavior
+
+- Before each request, the global rate limit and per-route bucket are checked.
+- If `remaining == 0` for a bucket - the request waits until `reset_at`.
+- When a `429` response is received, the client waits `retry_after` seconds and retries the request.
+- The number of retries is limited by `RestOptions.max_retries` (default: 3).
+- After all attempts are exhausted, `RestError::RateLimit(RateLimitError)` is returned.
+
+### Bucket Keys
+
+Routes are normalized before being stored in a bucket: numeric IDs are replaced with `:id`. This allows grouping requests to the same resource into one bucket.
+
+Normalization example:
+
+| Original Route | Bucket Key |
+|----------------|------------|
+| `/channels/123/messages` | `/channels/:id/messages` |
+| `/guilds/456/members/789` | `/guilds/:id/members/:id` |
+
+### Global Rate Limit
+
+If the response contains the header `x-ratelimit-global: true` - a global lock is set for the duration of `retry_after`. All subsequent requests wait for the lock to be released.
+
+---
+
+## Error Handling
+
+### RestError
+
+Returned by all `Rest` methods. Covers all possible errors in the HTTP layer.
+
+| Variant | Type | Description |
+|---------|------|-------------|
+| `RestError::Api(FluxerApiError)` | - | The API returned a structured error with a code and message. |
+| `RestError::Http(HttpError)` | - | HTTP error without a recognized response body. |
+| `RestError::RateLimit(RateLimitError)` | - | Rate limit exhausted after all retry attempts. |
+| `RestError::Reqwest(reqwest::Error)` | - | Network error (timeout, DNS, TLS). |
+| `RestError::Json(serde_json::Error)` | - | Response deserialization error. |
+
+---
+
+### FluxerApiError
+
+Occurs when the server returns a JSON error with `code` and `message` fields.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `String` | Machine-readable error code. |
+| `message` | `String` | Human-readable message. |
+| `status_code` | `u16` | HTTP response status. |
+| `errors` | `Vec<FieldError>` | List of errors for specific request fields. Empty if there are no field errors. |
+
+### FieldError
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `String` | JSON path to the field with the error (e.g. `"name"`, `"color"`). |
+| `message` | `String` | Error description for this field. |
+
+---
+
+### HttpError
+
+Occurs when the status is >= 400, but the response body is not a recognized JSON error.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status_code` | `u16` | HTTP response status. |
+| `body` | `String` | Raw response body. |
+
+---
+
+### RateLimitError
+
+Occurs after all retry attempts are exhausted with a 429 status.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retry_after` | `f64` | Recommended wait time in seconds. |
+| `global` | `bool` | `true` if this is a global rate limit. |
+| `message` | `String` | Message from the response body. |
+
+---
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="API error handling">
+
+```rust
+use fluxer_rest::RestError;
+
+match guild.ban(&rest, "USER_ID", Some("Reason")).await {
+    Ok(_) => println!("Banned"),
+    Err(RestError::Api(e)) => {
+        eprintln!("API error {}: {}", e.code, e.message);
+        for field_err in &e.errors {
+            eprintln!("  .{}: {}", field_err.path, field_err.message);
+        }
+    }
+    Err(RestError::RateLimit(e)) => {
+        eprintln!("Rate limit, retry after {:.1}s (global={})", e.retry_after, e.global);
+    }
+    Err(e) => eprintln!("Other error: {e}"),
+}
+```
+
+  </Accordion>
+  <Accordion title="Direct request to an arbitrary route">
+
+```rust
+use serde_json::Value;
+use fluxer_types::Routes;
+
+// Get gateway info
+let gateway: Value = client.rest.get(Routes::gateway_bot()).await?;
+println!("Shards: {}", gateway["shards"]);
+
+// Get user profile
+let profile: Value = client.rest
+    .get(&Routes::user_profile("USER_ID", Some("GUILD_ID")))
+    .await?;
+```
+
+  </Accordion>
+  <Accordion title="Assign a role directly via REST">
+
+```rust
+use fluxer_types::Routes;
+
+let route = Routes::guild_member_role("GUILD_ID", "USER_ID", "ROLE_ID");
+client.rest.put_empty(&route).await?;
+```
+
+  </Accordion>
+  <Accordion title="Send an interaction response">
+
+```rust
+use fluxer_types::Routes;
+use serde_json::Value;
+
+let route = Routes::interaction_callback("INTERACTION_ID", "INTERACTION_TOKEN");
+
+let body = serde_json::json!({
+    "type": 4,
+    "data": {
+        "content": "Command executed!"
+    }
+});
+
+let _: Value = client.rest.post(&route, Some(&body)).await?;
+```
+
+  </Accordion>
+</AccordionGroup>

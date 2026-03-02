@@ -1,0 +1,36 @@
+---
+title: 'FileAttachment'
+description: 'File structure for sending via multipart/form-data.'
+---
+
+`FileAttachment` is a representation of a file attached to a message. Passed into `channel.send_files`, `message.send_files`, and `message.reply_with_files`.
+
+## FileAttachment
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `String` | File name. Must not be empty. |
+| `data` | `Vec<u8>` | File contents in bytes. Must not be empty. |
+| `content_type` | `Option<String>` | MIME type. If not set - `application/octet-stream` is used. |
+| `description` | `Option<String>` | File description. Displayed as alt-text below the attachment. |
+| `spoiler` | `bool` | If `true`, prepends `SPOILER_` to the file name. |
+
+---
+
+### Construction
+
+#### `FileAttachment::new`
+
+```rust
+pub fn new(name: impl Into<String>, data: Vec<u8>) -> Self
+```
+
+Creates an attachment with the given name and contents.
+
+<Warning>
+  Panics if `name` is empty or `data` is empty.
+</Warning>
+
+---

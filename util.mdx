@@ -1,0 +1,597 @@
+---
+title: 'Utilities'
+description: 'Permissions, Snowflake, CDN, formatting, Tenor.'
+---
+
+The `fluxer_util` crate contains helper utilities that are independent of the client or structs.
+
+---
+
+## Permissions
+
+`Permissions` is a bitflags struct for working with Fluxer access permissions. Based on the `bitflags 2` crate.
+
+```rust
+use fluxer_util::permissions::{Permissions, parse_permissions, permissions_to_string};
+```
+
+### Flags
+
+| Constant | Bit | Hex | Description |
+|----------|-----|-----|-------------|
+| `CREATE_INSTANT_INVITE` | 0 | `0x1` | Create invites. |
+| `KICK_MEMBERS` | 1 | `0x2` | Kick members. |
+| `BAN_MEMBERS` | 2 | `0x4` | Ban members. |
+| `ADMINISTRATOR` | 3 | `0x8` | All permissions, bypasses channel overwrites. |
+| `MANAGE_CHANNELS` | 4 | `0x10` | Manage channels. |
+| `MANAGE_GUILD` | 5 | `0x20` | Manage guild settings. |
+| `ADD_REACTIONS` | 6 | `0x40` | Add reactions. |
+| `VIEW_AUDIT_LOG` | 7 | `0x80` | View audit log. |
+| `PRIORITY_SPEAKER` | 8 | `0x100` | Priority speaker in voice channels. |
+| `STREAM` | 9 | `0x200` | Screen share (Go Live). |
+| `VIEW_CHANNEL` | 10 | `0x400` | View channel. |
+| `SEND_MESSAGES` | 11 | `0x800` | Send messages. |
+| `SEND_TTS_MESSAGES` | 12 | `0x1000` | Send TTS messages. |
+| `MANAGE_MESSAGES` | 13 | `0x2000` | Delete and pin others' messages. |
+| `EMBED_LINKS` | 14 | `0x4000` | Embed links. |
+| `ATTACH_FILES` | 15 | `0x8000` | Attach files. |
+| `READ_MESSAGE_HISTORY` | 16 | `0x10000` | Read message history. |
+| `MENTION_EVERYONE` | 17 | `0x20000` | Mention @everyone and @here. |
+| `USE_EXTERNAL_EMOJIS` | 18 | `0x40000` | Use external emojis. |
+| `CONNECT` | 20 | `0x100000` | Connect to voice channels. |
+| `SPEAK` | 21 | `0x200000` | Speak in voice channels. |
+| `MUTE_MEMBERS` | 22 | `0x400000` | Mute members. |
+| `DEAFEN_MEMBERS` | 23 | `0x800000` | Deafen members. |
+| `MOVE_MEMBERS` | 24 | `0x1000000` | Move members between channels. |
+| `USE_VAD` | 25 | `0x2000000` | Use voice activity detection. |
+| `CHANGE_NICKNAME` | 26 | `0x4000000` | Change own nickname. |
+| `MANAGE_NICKNAMES` | 27 | `0x8000000` | Change other members' nicknames. |
+| `MANAGE_ROLES` | 28 | `0x10000000` | Manage roles. |
+| `MANAGE_WEBHOOKS` | 29 | `0x20000000` | Manage webhooks. |
+| `MANAGE_EXPRESSIONS` | 30 | `0x40000000` | Manage emojis and stickers. |
+| `USE_EXTERNAL_STICKERS` | - | `0x2000000000` | Use external stickers. |
+| `MODERATE_MEMBERS` | - | `0x10000000000` | Time out members. |
+| `CREATE_EXPRESSIONS` | - | `0x80000000000` | Create emojis and stickers. |
+| `PIN_MESSAGES` | - | `0x8000000000000` | Pin messages. |
+| `BYPASS_SLOWMODE` | - | `0x10000000000000` | Bypass slowmode. |
+| `UPDATE_RTC_REGION` | - | `0x20000000000000` | Change voice region. |
+
+---
+
+### `parse_permissions`
+
+```rust
+pub fn parse_permissions(s: &str) -> Permissions
+```
+
+Parses a bitfield string from the API into `Permissions`. Returns an empty set on parse error.
+
+```rust
+let s = "2147483647"; // string from the guild.permissions field
+let perms = parse_permissions(s);
+
+if perms.contains(Permissions::ADMINISTRATOR) {
+    println!("Bot is an administrator");
+}
+```
+
+---
+
+### `permissions_to_string`
+
+```rust
+pub fn permissions_to_string(p: Permissions) -> String
+```
+
+Converts `Permissions` back into a bitfield string for passing to the API.
+
+---
+
+### `ALL_PERMISSIONS`
+
+```rust
+pub const ALL_PERMISSIONS: Permissions
+```
+
+A set containing all known flags. Equivalent to `Permissions::all()`.
+
+---
+
+### Flag Operations
+
+`Permissions` supports standard bitflags operations:
+
+| Operation | Example | Description |
+|-----------|---------|-------------|
+| Check presence | `perms.contains(Permissions::BAN_MEMBERS)` | `true` if the flag is set. |
+| Union | `perms \| Permissions::KICK_MEMBERS` | Add flags. |
+| Intersection | `perms & Permissions::MANAGE_ROLES` | Keep only common flags. |
+| Inversion | `!perms` | Flip all flags. |
+| Difference | `perms - Permissions::SEND_MESSAGES` | Remove a flag. |
+
+<AccordionGroup>
+  <Accordion title="Example: check member permissions">
+
+```rust
+use fluxer_util::permissions::{parse_permissions, Permissions};
+
+// member.permissions - string from the API
+if let Some(perms_str) = &guild.permissions {
+    let perms = parse_permissions(perms_str);
+
+    if perms.contains(Permissions::ADMINISTRATOR) {
+        println!("Administrator - all permissions available");
+    } else {
+        let can_ban = perms.contains(Permissions::BAN_MEMBERS);
+        let can_kick = perms.contains(Permissions::KICK_MEMBERS);
+        println!("Ban: {can_ban}, Kick: {can_kick}");
+    }
+}
+```
+
+  </Accordion>
+  <Accordion title="Example: build a bitfield for a channel overwrite">
+
+```rust
+use fluxer_util::permissions::{permissions_to_string, Permissions};
+
+let allow = Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES;
+let deny  = Permissions::MANAGE_MESSAGES | Permissions::MENTION_EVERYONE;
+
+let body = serde_json::json!({
+    "allow": permissions_to_string(allow),
+    "deny":  permissions_to_string(deny),
+    "type": 0
+});
+
+channel.edit_permission(&rest, "ROLE_ID", &body).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## SnowflakeUtil
+
+Utilities for working with Snowflake IDs. Fluxer epoch: `1 420 070 400 000` ms (January 1, 2015, 00:00:00 UTC).
+
+```rust
+use fluxer_util::snowflake::SnowflakeUtil;
+```
+
+### `date_from_snowflake`
+
+```rust
+pub fn date_from_snowflake(id: &str) -> Option<SystemTime>
+```
+
+Extracts the creation date of an object from its Snowflake ID. Returns `None` if the ID is not a number.
+
+---
+
+### `timestamp_ms_from_snowflake`
+
+```rust
+pub fn timestamp_ms_from_snowflake(id: &str) -> Option<u64>
+```
+
+Returns the Unix timestamp in milliseconds encoded in the Snowflake ID.
+
+---
+
+### `snowflake_from_timestamp`
+
+```rust
+pub fn snowflake_from_timestamp(ms: u64) -> String
+```
+
+Generates the smallest possible Snowflake for a given Unix timestamp in milliseconds. Used for time-based pagination in API requests.
+
+---
+
+### `is_valid`
+
+```rust
+pub fn is_valid(id: &str) -> bool
+```
+
+Returns `true` if the string is a valid Snowflake (non-empty string, parseable as `u64`).
+
+---
+
+<AccordionGroup>
+  <Accordion title="Example: determine account age">
+
+```rust
+use fluxer_util::snowflake::SnowflakeUtil;
+use std::time::SystemTime;
+
+if let Some(created_at) = SnowflakeUtil::date_from_snowflake(&user.id) {
+    let age = SystemTime::now()
+        .duration_since(created_at)
+        .unwrap_or_default();
+
+    let days = age.as_secs() / 86400;
+    println!("Account created {} days ago", days);
+}
+```
+
+  </Accordion>
+  <Accordion title="Example: time-based pagination via snowflake_from_timestamp">
+
+```rust
+use fluxer_util::snowflake::SnowflakeUtil;
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
+
+// Fetch messages from the last 7 days
+let seven_days_ago = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_millis() as u64
+    - (7 * 24 * 3600 * 1000);
+
+let after_id = SnowflakeUtil::snowflake_from_timestamp(seven_days_ago);
+
+let messages = channel
+    .fetch_messages(&rest, Some(100), None, Some(&after_id))
+    .await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## CDN
+
+URL-building functions for Fluxer media resources. Exported from `fluxer_core::util::cdn`.
+
+```rust
+use fluxer_core::util::cdn::{self, CdnOptions};
+```
+
+### Base URLs
+
+| Constant | Value | Usage |
+|----------|-------|-------|
+| `CDN_URL` | `https://fluxerusercontent.com` | Avatars, banners, icons (user-generated content). |
+| `STATIC_CDN_URL` | `https://fluxerstatic.com` | Default avatars and static resources. |
+
+---
+
+### Functions
+
+| Function | Description |
+|----------|-------------|
+| `cdn_avatar_url(user_id, hash, opts)` | User avatar URL. `None` if `hash` is `None`. |
+| `cdn_display_avatar_url(user_id, hash, opts)` | Avatar URL with a fallback to the default. Always returns a string. |
+| `cdn_banner_url(resource_id, hash, opts)` | Banner URL (user or guild). |
+| `cdn_guild_icon_url(guild_id, hash, opts)` | Guild icon URL. |
+| `cdn_guild_splash_url(guild_id, hash, opts)` | Guild invite splash URL. |
+| `cdn_member_avatar_url(guild_id, user_id, hash, opts)` | Member server avatar URL. |
+| `cdn_member_banner_url(guild_id, user_id, hash, opts)` | Member server banner URL. |
+| `cdn_emoji_url(emoji_id, animated)` | Custom emoji image URL. |
+| `cdn_sticker_url(sticker_id, animated)` | Sticker image URL. |
+| `cdn_default_avatar_url(user_id)` | Default avatar URL by user ID (index 0–5). |
+
+### File Extension Logic
+
+- If the hash starts with `a_` - the extension is always `gif` (animated resource).
+- Otherwise `CdnOptions.extension` is used, or `"png"` by default.
+
+<AccordionGroup>
+  <Accordion title="Example: get avatar URL at 128px in webp format">
+
+```rust
+use fluxer_core::util::cdn::{cdn_avatar_url, cdn_default_avatar_url, CdnOptions};
+
+let opts = CdnOptions {
+    size: Some(128),
+    extension: Some("webp".to_string()),
+};
+
+let url = cdn_avatar_url(&user.id, user.avatar.as_deref(), &opts)
+    .unwrap_or_else(|| cdn_default_avatar_url(&user.id));
+
+println!("Avatar: {url}");
+```
+
+  </Accordion>
+  <Accordion title="Example: custom emoji URL">
+
+```rust
+use fluxer_core::util::cdn::cdn_emoji_url;
+
+// animated = true if the emoji is animated
+let url = cdn_emoji_url("EMOJI_ID", false);
+println!("Emoji: {url}");
+// → https://fluxerusercontent.com/emojis/EMOJI_ID.png
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Formatters
+
+Text utilities from `fluxer_util::formatters`.
+
+```rust
+use fluxer_util::formatters::{truncate, escape_markdown, format_color, format_timestamp};
+```
+
+### `truncate`
+
+```rust
+pub fn truncate(s: &str, max_len: usize) -> String
+```
+
+Truncates a string to `max_len` characters. If the string is longer - the last character is replaced with `…` (U+2026).
+
+```rust
+let short = truncate("A very long string", 10);
+// → "A very lo…"
+```
+
+<Note>
+  Use `truncate` before passing user-provided data into `MessagePayload::content` or `EmbedBuilder` fields to avoid panics when exceeding limits.
+</Note>
+
+---
+
+### `escape_markdown`
+
+```rust
+pub fn escape_markdown(s: &str) -> String
+```
+
+Escapes Markdown characters: `*`, `_`, `~`, `` ` ``, `|`, `>`, `#`.
+
+```rust
+let safe = escape_markdown("**bold** and _italic_");
+// → "\\*\\*bold\\*\\* and \\_italic\\_"
+```
+
+---
+
+### `format_color`
+
+```rust
+pub fn format_color(color: u32) -> String
+```
+
+Formats an RGB integer into a hex string of the form `#RRGGBB`. Clamps values above `0xFFFFFF`.
+
+```rust
+let hex = format_color(0x5865F2);
+// → "#5865F2"
+```
+
+---
+
+### `format_timestamp`
+
+```rust
+pub fn format_timestamp(unix_secs: u64, style: Option<char>) -> String
+```
+
+Formats a Unix timestamp (in seconds) into a Fluxer time tag `<t:timestamp:style>`.
+
+| Style | Character | Display Example |
+|-------|-----------|-----------------|
+| Short time | `t` | 12:00 |
+| Long time | `T` | 12:00:00 |
+| Short date | `d` | 01/15/2024 |
+| Long date | `D` | January 15, 2024 |
+| Date and time | `f` | January 15, 2024, 12:00 (default) |
+| Full date and time | `F` | Monday, January 15, 2024, 12:00 |
+| Relative time | `R` | 3 minutes ago |
+
+```rust
+use std::time::{SystemTime, UNIX_EPOCH};
+
+let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+
+let tag = format_timestamp(now, Some('R'));
+// → "<t:1705312800:R>"
+
+let default = format_timestamp(now, None);
+// → "<t:1705312800>"
+```
+
+<AccordionGroup>
+  <Accordion title="Example: embed with event time">
+
+```rust
+use fluxer_util::formatters::format_timestamp;
+use fluxer_builders::EmbedBuilder;
+
+let event_ts: u64 = 1705312800;
+
+let embed = EmbedBuilder::new()
+    .title("Event")
+    .description(format!(
+        "Start: {}\nIn: {}",
+        format_timestamp(event_ts, Some('f')),
+        format_timestamp(event_ts, Some('R')),
+    ))
+    .color(0x5865F2)
+    .build();
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Tenor
+
+Utilities for working with Tenor GIF links from `fluxer_util::tenor`.
+
+```rust
+use fluxer_util::tenor::{is_tenor_url, extract_tenor_id, tenor_media_url, resolve_tenor_to_image_url};
+```
+
+### `is_tenor_url`
+
+```rust
+pub fn is_tenor_url(url: &str) -> bool
+```
+
+Returns `true` if the URL is a Tenor link.
+
+Recognizes the following formats:
+- `https://tenor.com/view/...`
+- `https://tenor.com/embed/...`
+- `https://media.tenor.com/...`
+
+---
+
+### `extract_tenor_id`
+
+```rust
+pub fn extract_tenor_id(url: &str) -> Option<String>
+```
+
+Extracts the numeric GIF ID from a Tenor link.
+
+| URL Format | Example | Result |
+|------------|---------|--------|
+| `tenor.com/view/name-12345` | `.../funny-cat-12345` | `"12345"` |
+| `tenor.com/embed/12345` | `.../embed/12345` | `"12345"` |
+
+Returns `None` if the ID is not found or is not a number.
+
+---
+
+### `tenor_media_url`
+
+```rust
+pub fn tenor_media_url(gif_id: &str) -> String
+```
+
+Builds a direct link to the GIF file by ID:
+
+```
+https://media.tenor.com/images/{gif_id}/tenor.gif
+```
+
+---
+
+### `resolve_tenor_to_image_url`
+
+```rust
+pub fn resolve_tenor_to_image_url(url: &str) -> Option<String>
+```
+
+Combines `extract_tenor_id` and `tenor_media_url`. Accepts a Tenor share/embed URL and returns a direct link to the GIF. Returns `None` if the URL is not recognized.
+
+<AccordionGroup>
+  <Accordion title="Example: handle a Tenor link in a message">
+
+```rust
+use fluxer_util::tenor::{is_tenor_url, resolve_tenor_to_image_url};
+use fluxer_builders::{EmbedBuilder, MessagePayload};
+
+if let DispatchEvent::MessageCreate { message, .. } = event {
+    for word in message.content.split_whitespace() {
+        if is_tenor_url(word) {
+            if let Some(direct_url) = resolve_tenor_to_image_url(word) {
+                let embed = EmbedBuilder::new()
+                    .image(direct_url)
+                    .build();
+
+                let payload = MessagePayload::new().add_embed(embed).build();
+                let _ = message.send(&rest, &payload).await;
+            }
+            break;
+        }
+    }
+}
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Resolvers
+
+Helper functions from `fluxer_util::resolvers` for working with colors.
+
+```rust
+use fluxer_util::{resolve_color, resolve_color_rgb};
+```
+
+### `resolve_color`
+
+```rust
+pub fn resolve_color(hex: &str) -> Option<u32>
+```
+
+Parses a hex color string into an RGB integer. Accepts `"#RRGGBB"` and `"RRGGBB"` formats.
+
+```rust
+let color = resolve_color("#5865F2"); // → Some(0x5865F2)
+let color = resolve_color("5865F2");  // → Some(0x5865F2)
+let color = resolve_color("xyz");     // → None
+```
+
+---
+
+### `resolve_color_rgb`
+
+```rust
+pub fn resolve_color_rgb(r: u8, g: u8, b: u8) -> u32
+```
+
+Converts R, G, B components into an RGB integer.
+
+```rust
+let color = resolve_color_rgb(88, 101, 242); // → 0x5865F2
+```
+
+---
+
+## Emoji
+
+Utilities from `fluxer_util::emoji` for emoji formatting.
+
+```rust
+use fluxer_util::emoji::{format_emoji, parse_emoji_str};
+```
+
+### `format_emoji`
+
+```rust
+pub fn format_emoji(name: &str, id: Option<&str>, animated: bool) -> String
+```
+
+Formats an emoji into a string for passing to API routes.
+
+| Parameters | Result | Usage |
+|------------|--------|-------|
+| `name = "👍"`, `id = None` | `"👍"` | Unicode emoji. |
+| `name = "fluxer"`, `id = Some("123")`, `animated = false` | `"fluxer:123"` | Custom static. |
+| `name = "fluxer"`, `id = Some("123")`, `animated = true` | `"a_fluxer:123"` | Custom animated. |
+
+---
+
+### `parse_emoji_str`
+
+```rust
+pub fn parse_emoji_str(s: &str) -> (String, Option<String>, bool)
+```
+
+Parses an emoji string into its components `(name, id, animated)`.
+
+| Input String | Result |
+|--------------|--------|
+| `"👍"` | `("👍", None, false)` |
+| `"fluxer:123"` | `("fluxer", Some("123"), false)` |
+| `"a_fluxer:123"` | `("fluxer", Some("123"), true)` |

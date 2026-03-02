@@ -1,0 +1,379 @@
+---
+title: 'Gateway'
+description: 'WebSocket connection, sharding, connection lifecycle, and reconnection.'
+---
+
+The Gateway connection is managed automatically via `client.login(token)`. Direct interaction with `WebSocketManager` and `WebSocketShard` is not required in most cases.
+
+## Connection Lifecycle
+
+```
+GET /gateway/bot
+        ↓
+  connect_async (TLS)
+        ↓
+  ← Hello { heartbeat_interval }
+        ↓
+  → Identify (or Resume if session_id + seq are available)
+        ↓
+  ← READY (or RESUMED)
+        ↓
+  ← Dispatch events...
+```
+
+| Step | Description |
+|------|-------------|
+| `GET /gateway/bot` | Fetches the WebSocket URL and recommended shard count. |
+| `connect_async` | Opens a TLS WebSocket connection to the received URL. |
+| `Hello` | The server sends `heartbeat_interval` in milliseconds. The shard starts a heartbeat task. |
+| `Identify` | The shard sends the token, intents, shard info, and optional presence. |
+| `Resume` | If `session_id` and `seq` are saved - Resume is sent instead of Identify. |
+| `READY` / `RESUMED` | Session established. The client starts receiving events. |
+
+---
+
+## WebSocketManagerOptions
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `token` | `String` | `""` | Bot token. Set automatically during `client.login`. |
+| `intents` | `u64` | `0` | Gateway intents. Always `0` in Fluxer. |
+| `presence` | `Option<GatewayPresenceUpdateSendData>` | `None` | Initial presence on connection. |
+| `shard_ids` | `Option<Vec<u32>>` | `None` | List of specific shard IDs to start. If `None`, all are started. |
+| `shard_count` | `Option<u32>` | `None` | Total number of shards. If `None`, taken from the `/gateway/bot` response. |
+| `version` | `String` | `"1"` | Gateway version. |
+
+---
+
+## WebSocketManager
+
+Manages a pool of shards. Created and started inside `client.login`.
+
+### `connect`
+
+```rust
+pub async fn connect(&mut self) -> Result<(), RestError>
+```
+
+Fetches `/gateway/bot`, determines the shard count, and starts each shard in a separate `tokio::spawn` task.
+
+---
+
+### `broadcast`
+
+```rust
+pub async fn broadcast(&self, payload: Value)
+```
+
+Sends a JSON payload to all active shards. Called via `client.send_to_gateway`.
+
+---
+
+### `send`
+
+```rust
+pub async fn send(&self, shard_id: u32, payload: Value) -> Result<(), String>
+```
+
+Sends a JSON payload to a specific shard by its ID. Returns `Err` if the shard is not found or its channel is closed.
+
+---
+
+### `shard_count`
+
+```rust
+pub fn shard_count(&self) -> u32
+```
+
+Returns the total number of running shards.
+
+---
+
+### `gateway_url`
+
+```rust
+pub fn gateway_url(&self) -> Option<&str>
+```
+
+Returns the WebSocket URL received from `/gateway/bot`. `None` before `connect` is called.
+
+---
+
+## WebSocketShard
+
+One shard - one WebSocket connection. Manages its own heartbeat and automatically reconnects on disconnect.
+
+### ShardOptions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | `String` | Gateway WebSocket URL. |
+| `token` | `String` | Bot token. |
+| `intents` | `u64` | Gateway intents. |
+| `presence` | `Option<GatewayPresenceUpdateSendData>` | Initial presence. |
+| `shard_id` | `u32` | ID of this shard (from 0 to `num_shards - 1`). |
+| `num_shards` | `u32` | Total number of shards. |
+| `version` | `String` | Gateway version. |
+
+---
+
+## Heartbeat
+
+After receiving `Hello`, the shard starts a separate `tokio::spawn` task:
+
+1. The first heartbeat is sent with a random jitter: `sleep(interval * rand())`.
+2. After that, a heartbeat is sent every `heartbeat_interval` milliseconds.
+3. If `HeartbeatAck` is not received before the next heartbeat while a session is active - the shard disconnects and reconnects.
+
+<Note>
+  `rand_f64()` in the shard is implemented via `SystemTime::subsec_nanos()`. This is not cryptographically secure randomness, but it is sufficient for heartbeat jitter.
+</Note>
+
+---
+
+## Reconnection
+
+On any disconnect, the shard automatically reconnects with exponential backoff.
+
+| Parameter | Value |
+|-----------|-------|
+| Initial delay | 1,000 ms |
+| Maximum delay | 45,000 ms |
+| Growth factor | ×1.5 on each failure |
+| Jitter | ×(0.75 … 1.25) of the current delay |
+
+After a successful connection, the delay resets to 1,000 ms.
+
+### Identify vs Resume
+
+| Condition | Action |
+|-----------|--------|
+| `session_id` and `seq` are saved | Sends `Resume` - restores the session without losing missed events. |
+| `session_id` or `seq` are missing | Sends `Identify` - starts a new session. |
+| Opcode `InvalidSession` (9) | Resets `session_id` and `seq`, waits 1–5 seconds, reconnects with `Identify`. |
+
+---
+
+## Opcodes
+
+| Opcode | Value | Direction | Description |
+|--------|-------|-----------|-------------|
+| `Dispatch` | 0 | ← Server | Gateway event (READY, MESSAGE_CREATE, etc.). |
+| `Heartbeat` | 1 | → Client | Server requests an immediate heartbeat. |
+| `Identify` | 2 | → Client | Authenticate a new session. |
+| `PresenceUpdate` | 3 | → Client | Update status and activity. |
+| `VoiceStateUpdate` | 4 | → Client | Connect/disconnect from a voice channel. |
+| `Resume` | 6 | → Client | Restore an interrupted session. |
+| `Reconnect` | 7 | ← Server | Server requests a reconnect. |
+| `RequestGuildMembers` | 8 | → Client | Request the guild member list. |
+| `InvalidSession` | 9 | ← Server | Session is invalid. |
+| `Hello` | 10 | ← Server | First message after connecting, contains `heartbeat_interval`. |
+| `HeartbeatAck` | 11 | ← Server | Heartbeat acknowledgement. |
+
+---
+
+## Close Codes
+
+Determine whether to reconnect when a `Close` frame is received.
+
+### Reconnection is performed
+
+| Code | Description |
+|------|-------------|
+| `1000` | Normal closure. |
+| `1001` | Client going away. |
+| `1005` | No code specified. |
+| `1006` | Abnormal closure (no Close frame). |
+| `1011` | Internal server error. |
+| `1012` | Service restart. |
+| `1013` | Try again later. |
+| `1014` | Bad Gateway. |
+| `1015` | TLS error. |
+| `4000` | Unknown error. |
+| `4007` | Invalid sequence number during Resume. |
+| `4009` | Session timed out. |
+| `4010` | Invalid shard. |
+| `4011` | Sharding required. |
+| `4012` | Invalid API version. |
+
+### Reconnection is not performed
+
+| Code | Description |
+|------|-------------|
+| `4001` | Unknown opcode. |
+| `4002` | Decode error. |
+| `4003` | Not authenticated. |
+| `4004` | Token is invalid. Reconnecting is pointless. |
+| `4005` | Already authenticated. |
+| `4008` | Rate limit exceeded. |
+| `4013` | Invalid intents. |
+| `4014` | Disallowed intents. |
+
+<Warning>
+  When code `4004` is received, the shard shuts down without reconnecting. Verify that the token is correct.
+</Warning>
+
+---
+
+## GatewayPresenceUpdateSendData
+
+Set in `ClientOptions.presence` or via `send_to_gateway` with opcode `3`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `since` | `Option<u64>` | Unix time (ms) since going AFK. `None` if not AFK. |
+| `activities` | `Option<Vec<GatewayActivity>>` | List of activities. |
+| `custom_status` | `Option<GatewayCustomStatus>` | Custom status (Fluxer-specific). |
+| `status` | `String` | Status: `"online"`, `"idle"`, `"dnd"`, `"invisible"`. |
+| `afk` | `Option<bool>` | Whether the session is AFK. |
+
+### GatewayActivity
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `String` | Activity name. |
+| `kind` | `u8` | Type: `0` - Playing, `1` - Streaming, `2` - Listening, `3` - Watching, `5` - Competing. |
+| `url` | `Option<String>` | Stream URL. Used only when `kind == 1`. |
+
+### GatewayCustomStatus
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | `Option<String>` | Custom status text. |
+| `emoji_name` | `Option<String>` | Emoji name. |
+| `emoji_id` | `Option<String>` | Custom emoji ID. |
+
+---
+
+## WsEvent / ShardEvent
+
+Internal events that shards pass to the manager.
+
+### ShardEvent (inside a shard)
+
+| Variant | Description |
+|---------|-------------|
+| `ShardEvent::Ready(Value)` | The shard received a `READY` payload. |
+| `ShardEvent::Resumed` | The shard restored its session via Resume. |
+| `ShardEvent::Dispatch(GatewayReceivePayload)` | A Gateway event arrived. |
+| `ShardEvent::Close(u16)` | Connection closed with the given code. |
+| `ShardEvent::Error(String)` | WebSocket error. |
+| `ShardEvent::Debug(String)` | Diagnostic message. |
+
+### WsEvent (from manager to client)
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `WsEvent::ShardReady` | `shard_id: u32`, `data: Value` | Shard is ready. |
+| `WsEvent::ShardResumed` | `shard_id: u32` | Shard restored its session. |
+| `WsEvent::Dispatch` | `shard_id: u32`, `payload: GatewayReceivePayload` | Gateway event to process. |
+| `WsEvent::ShardClose` | `shard_id: u32`, `code: u16` | Shard closed. |
+| `WsEvent::Error` | `shard_id: u32`, `error: String` | Shard error. |
+| `WsEvent::Debug` | `message: String` | Diagnostic message. |
+
+---
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Set status on startup">
+
+```rust
+use fluxer_core::client::{Client, ClientOptions};
+use fluxer_types::gateway::{GatewayActivity, GatewayPresenceUpdateSendData};
+
+let options = ClientOptions {
+    intents: 0,
+    presence: Some(GatewayPresenceUpdateSendData {
+        status: "online".to_string(),
+        activities: Some(vec![GatewayActivity {
+            name: "Fluxer.RUST".to_string(),
+            kind: 0,
+            url: None,
+        }]),
+        custom_status: None,
+        since: None,
+        afk: Some(false),
+    }),
+    ..Default::default()
+};
+
+let mut client = Client::new(options);
+```
+
+  </Accordion>
+  <Accordion title="Update status via Gateway at runtime">
+
+```rust
+use serde_json::json;
+
+let payload = json!({
+    "op": 3,
+    "d": {
+        "status": "dnd",
+        "afk": false,
+        "since": null,
+        "activities": [{
+            "name": "Maintenance",
+            "type": 0
+        }]
+    }
+});
+
+client.send_to_gateway(payload).await;
+```
+
+  </Accordion>
+  <Accordion title="Request guild members (RequestGuildMembers)">
+
+```rust
+use serde_json::json;
+
+let payload = json!({
+    "op": 8,
+    "d": {
+        "guild_id": "GUILD_ID",
+        "query": "",
+        "limit": 0
+    }
+});
+
+client.send_to_gateway(payload).await;
+```
+
+  </Accordion>
+  <Accordion title="Send VoiceStateUpdate to a specific shard">
+
+```rust
+use serde_json::json;
+
+let payload = json!({
+    "op": 4,
+    "d": {
+        "guild_id": "GUILD_ID",
+        "channel_id": "VOICE_CHANNEL_ID",
+        "self_mute": false,
+        "self_deaf": false
+    }
+});
+
+if let Err(e) = client.send_to_shard(0, payload).await {
+    tracing::error!("send_to_shard: {e}");
+}
+```
+
+  </Accordion>
+  <Accordion title="Track Debug events from the Gateway">
+
+```rust
+client.on_typed(|event| {
+    Box::pin(async move {
+        if let DispatchEvent::Debug { message } = event {
+            tracing::debug!("[Gateway] {message}");
+        }
+    })
+});
+```
+
+  </Accordion>
+</AccordionGroup>

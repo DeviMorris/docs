@@ -1,0 +1,221 @@
+---
+title: 'Collectors'
+description: 'MessageCollector and ReactionCollector - collecting messages and reactions with filtering, timeout, and limit.'
+---
+
+Collectors let you wait for one or more messages or reactions that satisfy a condition, without blocking the main event handler.
+
+They are created via client methods and operate as independent async tasks.
+
+## EndReason
+
+Returned alongside the result from `.collect()`. Indicates why collection ended.
+
+| Variant | Description |
+|---------|-------------|
+| `EndReason::Time` | The timeout set in `time` expired. |
+| `EndReason::Limit` | The limit set in `max` was reached. |
+| `EndReason::User` | The channel was closed - client destroyed or collector dropped. |
+
+---
+
+## MessageCollector
+
+Collects messages from a specified channel.
+
+### MessageCollectorOptions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channel_id` | `String` | ID of the channel to collect messages from. |
+| `filter` | `Option<MessageFilter>` | Predicate function `Fn(&ApiMessage) -> bool`. Messages that don't pass are ignored. |
+| `time` | `Option<Duration>` | Maximum wait time. When elapsed, the collector ends with `EndReason::Time`. |
+| `max` | `Option<usize>` | Maximum number of messages to collect. When reached - `EndReason::Limit`. |
+
+### Creating
+
+```rust
+pub fn create_message_collector(
+    &mut self,
+    options: MessageCollectorOptions,
+) -> MessageCollector
+```
+
+Called on `&mut Client`. Registers an internal sender through which the client delivers incoming messages to the collector.
+
+### Collecting
+
+```rust
+pub async fn collect(self) -> (Vec<ApiMessage>, EndReason)
+```
+
+Blocks the current task until the timeout expires, the limit is reached, or the channel closes. Returns all collected messages and the reason for completion.
+
+<Note>
+  `.collect()` consumes the collector. If you need multiple independent collection passes - create a new collector each time.
+</Note>
+
+<AccordionGroup>
+  <Accordion title="Example: wait for the next message from a user">
+
+```rust
+use std::time::Duration;
+use fluxer_core::collectors::message_collector::MessageCollectorOptions;
+
+let author_id = message.author.id.clone();
+let channel_id = message.channel_id.clone();
+
+let collector = client.create_message_collector(MessageCollectorOptions {
+    channel_id: channel_id.clone(),
+    filter: Some(Box::new(move |msg| msg.author.id == author_id)),
+    time: Some(Duration::from_secs(30)),
+    max: Some(1),
+});
+
+let (messages, reason) = collector.collect().await;
+
+if let Some(reply) = messages.into_iter().next() {
+    println!("Reply: {}", reply.content);
+} else {
+    println!("Timed out: {reason:?}");
+}
+```
+
+  </Accordion>
+  <Accordion title="Example: collect 5 messages within 60 seconds">
+
+```rust
+use std::time::Duration;
+use fluxer_core::collectors::message_collector::MessageCollectorOptions;
+
+let collector = client.create_message_collector(MessageCollectorOptions {
+    channel_id: channel_id.clone(),
+    filter: None,
+    time: Some(Duration::from_secs(60)),
+    max: Some(5),
+});
+
+let (messages, reason) = collector.collect().await;
+println!("Collected {} messages, reason: {reason:?}", messages.len());
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## ReactionCollector
+
+Collects reactions on a specified message.
+
+### ReactionCollectorOptions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message_id` | `String` | ID of the message to collect reactions from. |
+| `channel_id` | `String` | ID of the channel the message is in. |
+| `filter` | `Option<ReactionFilter>` | Predicate function `Fn(&CollectedReaction) -> bool`. |
+| `time` | `Option<Duration>` | Maximum wait time. |
+| `max` | `Option<usize>` | Maximum number of reactions to collect. |
+
+### Creating
+
+```rust
+pub fn create_reaction_collector(
+    &mut self,
+    options: ReactionCollectorOptions,
+) -> ReactionCollector
+```
+
+### Collecting
+
+```rust
+pub async fn collect(self) -> (Vec<CollectedReaction>, EndReason)
+```
+
+### CollectedReaction
+
+Structure delivered to the collector from the `MessageReactionAdd` event.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message_id` | `String` | Message ID. |
+| `channel_id` | `String` | Channel ID. |
+| `guild_id` | `Option<String>` | Guild ID. `None` in DMs. |
+| `user_id` | `String` | ID of the user who reacted. |
+| `emoji_name` | `String` | Emoji name or Unicode character. |
+| `emoji_id` | `Option<String>` | Custom emoji ID. `None` for Unicode. |
+| `emoji_animated` | `bool` | Whether the emoji is animated. |
+
+#### `key()`
+
+```rust
+pub fn key(&self) -> String
+```
+
+Returns a unique reaction key in the format `user_id:emoji_name:emoji_id` (for custom emoji) or `user_id:emoji_name` (for Unicode). Useful for deduplication.
+
+<AccordionGroup>
+  <Accordion title="Example: confirm an action via reaction">
+
+```rust
+use std::time::Duration;
+use fluxer_core::collectors::reaction_collector::ReactionCollectorOptions;
+
+let payload = MessagePayload::new()
+    .content("Confirm the action: press ✅")
+    .build();
+
+let sent = channel.send(&rest, &payload).await?;
+
+let collector = client.create_reaction_collector(ReactionCollectorOptions {
+    message_id: sent.id.clone(),
+    channel_id: sent.channel_id.clone(),
+    filter: Some(Box::new(move |r| r.emoji_name == "✅")),
+    time: Some(Duration::from_secs(30)),
+    max: Some(1),
+});
+
+let (reactions, reason) = collector.collect().await;
+
+if reactions.is_empty() {
+    println!("No confirmation received: {reason:?}");
+} else {
+    println!("Confirmed by user {}", reactions[0].user_id);
+}
+```
+
+  </Accordion>
+  <Accordion title="Example: poll - collect all reactions within 10 seconds">
+
+```rust
+use std::time::Duration;
+use fluxer_core::collectors::reaction_collector::ReactionCollectorOptions;
+
+let collector = client.create_reaction_collector(ReactionCollectorOptions {
+    message_id: poll_message_id.clone(),
+    channel_id: channel_id.clone(),
+    filter: None,
+    time: Some(Duration::from_secs(10)),
+    max: None,
+});
+
+let (reactions, _) = collector.collect().await;
+
+let yes = reactions.iter().filter(|r| r.emoji_name == "👍").count();
+let no  = reactions.iter().filter(|r| r.emoji_name == "👎").count();
+println!("For: {yes}, Against: {no}");
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Architecture
+
+Collectors work via `mpsc::UnboundedSender`. When a collector is created, the client stores its sender internally. On every `MessageCreate` or `MessageReactionAdd`, the client fans out data to all registered senders.
+
+<Warning>
+  Senders remain in the client even after `.collect()` completes. Over time, dead senders accumulate. This does not cause a memory leak - sending to a closed channel is silently ignored - but it adds minor overhead to the event handler when a large number of completed collectors have built up.
+</Warning>

@@ -1,1 +1,201 @@
-TBD
+---
+title: 'Voice'
+description: 'Voice connection management and audio playback.'
+---
+
+`VoiceManager` manages voice connections per guild. Accessible via `client.voice`.
+
+`FluxerVoiceConnection` is returned on join and used for audio playback.
+
+---
+
+## VoiceManager
+
+### `join`
+
+```rust
+pub async fn join(&self, guild_id: &str, channel_id: &str) -> Result<Arc<FluxerVoiceConnection>, VoiceError>
+```
+
+Connects to a voice channel. Sends opcode 4 to the Gateway, waits for `VOICE_SERVER_UPDATE`, then establishes a LiveKit WebRTC connection.
+
+If a live connection for the given `channel_id` already exists, returns it immediately without reconnecting.
+
+<AccordionGroup>
+  <Accordion title="Example">
+    ```rust
+    let conn = client.voice.join(&guild_id, &channel_id).await?;
+    conn.play_file("audio/track.mp3").await?;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `disconnect`
+
+```rust
+pub async fn disconnect(&self, channel_id: &str) -> Result<(), VoiceError>
+```
+
+Closes the connection for the given `channel_id` and sends opcode 4 with `channel_id: null` to notify the Gateway.
+
+---
+
+### `disconnect_guild`
+
+```rust
+pub async fn disconnect_guild(&self, guild_id: &str) -> Result<(), VoiceError>
+```
+
+Disconnects all active connections belonging to a guild.
+
+---
+
+### `disconnect_all`
+
+```rust
+pub async fn disconnect_all(&self)
+```
+
+Disconnects every active voice connection. Errors are silently ignored.
+
+---
+
+### `stop_guild`
+
+```rust
+pub async fn stop_guild(&self, guild_id: &str)
+```
+
+Stops audio playback on all connections in the guild without closing the WebRTC connection.
+
+---
+
+### `get_connection`
+
+```rust
+pub fn get_connection(&self, channel_id: &str) -> Option<Arc<FluxerVoiceConnection>>
+```
+
+Returns the active connection for a channel, or `None` if not connected.
+
+---
+
+### `is_connected`
+
+```rust
+pub fn is_connected(&self, channel_id: &str) -> bool
+```
+
+Returns `true` if a live connection exists for the given `channel_id`.
+
+---
+
+## FluxerVoiceConnection
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `guild_id` | `String` | Guild the connection belongs to. |
+| `channel_id` | `String` | Voice channel the connection is bound to. |
+| `connection_id` | `String` | Connection ID from the voice server response. |
+
+---
+
+### `play_file`
+
+```rust
+pub async fn play_file(&self, path: &str) -> Result<(), VoiceError>
+```
+
+Decodes and streams an audio file. Uses `symphonia` for decoding. The format is detected automatically from the file extension. Publishes an audio track on the first call if not already published.
+
+<AccordionGroup>
+  <Accordion title="Example">
+    ```rust
+    let conn = client.voice.join(&guild_id, &channel_id).await?;
+    conn.play_file("sounds/music.mp3").await?;
+    ```
+  </Accordion>
+  <Accordion title="Supported formats">
+
+| Format | Extension | ✓ / ✗ |
+|--------|-----------|-------|
+| MP3 | `.mp3` | ✓ |
+| OGG Vorbis | `.ogg` | ✓ |
+| FLAC | `.flac` | ✓ |
+| WAV / PCM | `.wav` | ✓ |
+| AAC | `.aac` | ✓ |
+| ALAC | `.m4a` (lossless) | ✓ |
+| MP4 / M4A | `.mp4`, `.m4a` | ✓ |
+| ADPCM | `.wav` (adpcm) | ✓ |
+| Opus | `.opus` | ✗ |
+| WMA | `.wma` | ✗ |
+| AC-3 / EAC-3 | `.ac3` | ✗ |
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `play_bytes`
+
+```rust
+pub async fn play_bytes(&self, data: Vec<u8>) -> Result<(), VoiceError>
+```
+
+Decodes and streams audio from a byte buffer. Same decoding pipeline as `play_file` — `data` must be a valid encoded audio file (MP3, OGG, WAV, etc.), not raw PCM samples.
+
+<AccordionGroup>
+  <Accordion title="Example">
+    ```rust
+    let bytes = tokio::fs::read("sounds/effect.ogg").await?;
+    conn.play_bytes(bytes).await?;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `stop`
+
+```rust
+pub async fn stop(&self) -> Result<(), VoiceError>
+```
+
+Stops the current playback. Does not close the connection — you can call `play_file` or `play_bytes` again afterwards.
+
+---
+
+### `disconnect`
+
+```rust
+pub async fn disconnect(&self) -> Result<(), VoiceError>
+```
+
+Stops playback and closes the LiveKit room. After this the connection is no longer usable.
+
+---
+
+### `is_connected`
+
+```rust
+pub fn is_connected(&self) -> bool
+```
+
+Returns `true` if the LiveKit room state is `Connected`.
+
+---
+
+## VoiceError
+
+| Variant | Description |
+|---------|-------------|
+| `Timeout` | Gateway did not send `VOICE_SERVER_UPDATE` within 60 seconds. |
+| `ConnectionFailed(String)` | Failed to parse the voice server response or establish the connection. |
+| `GatewayUnavailable` | `VoiceManager` has no gateway sender — client is not ready. |
+| `NotConnected` | Operation requires an active connection, but none exists. |
+| `PlaybackError(String)` | Error during audio streaming or task execution. |
+| `LiveKit(String)` | Underlying LiveKit / WebRTC error. |

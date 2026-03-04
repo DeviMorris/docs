@@ -15,11 +15,18 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": ["index", "quickstart"]
+            "pages": [
+              "index",
+              "quickstart"
+            ]
           },
           {
             "group": "Client",
-            "pages": ["client/overview", "client/events", "client/collectors"]
+            "pages": [
+              "client/overview",
+              "client/events",
+              "client/collectors"
+            ]
           },
           {
             "group": "Structures",
@@ -33,15 +40,25 @@
           },
           {
             "group": "Builders",
-            "pages": ["builders/message", "builders/embed", "builders/files"]
+            "pages": [
+              "builders/message",
+              "builders/embed",
+              "builders/files"
+            ]
           },
           {
             "group": "Networking",
-            "pages": ["rest", "gateway"]
+            "pages": [
+              "rest",
+              "gateway",
+              "voice"
+            ]
           },
           {
             "group": "Utilities",
-            "pages": ["util"]
+            "pages": [
+              "util"
+            ]
           }
         ]
       }

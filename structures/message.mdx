@@ -240,6 +240,39 @@ msg.edit(&rest, &edited_payload).await?;
 
 ---
 
+#### `edit_files`
+
+```rust
+pub async fn edit_files(
+    &self,
+    rest: &fluxer_rest::Rest,
+    body: &fluxer_builders::MessagePayloadData,
+    files: &[fluxer_builders::FileAttachment],
+) -> crate::Result<ApiMessage>
+```
+
+Edits the current message with files. Bots can only edit their **own** messages.
+
+<AccordionGroup>
+  <Accordion title="Example: update message with a new file">
+
+```rust
+use fluxer_builders::{MessagePayload, file::FileAttachment};
+
+// Let's assume `updated_png` is a Vec<u8> with a freshly generated image
+let file = FileAttachment::new("image.png", updated_png);
+let edited_payload = MessagePayload::new()
+    .content("The image has been updated!")
+    .build();
+
+msg.edit_files(&rest, &edited_payload, &[file]).await?;
+```
+
+  </Accordion>
+</AccordionGroup>
+
+---
+
 #### `delete`
 
 ```rust

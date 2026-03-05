@@ -1,0 +1,264 @@
+---
+title: 'PollCard'
+description: 'Builder for constructing PNG poll cards.'
+---
+
+`PollCard` is a builder pattern for rendering a styled poll image as a `Vec<u8>` PNG, ready to send as a file attachment.
+
+## Setup
+
+Add to `Cargo.toml`:
+
+```toml
+fluxer-poll = "0.3.0"
+```
+
+---
+
+## Limits
+
+| Limit | Maximum |
+|-------|---------|
+| `options` count | 7 items |
+
+<Warning>
+  `render_png()` will return an error if the options count is empty or exceeds 7 items.
+</Warning>
+
+---
+
+## Creating
+
+### `PollCard::new`
+
+```rust
+pub fn new(title: impl Into<String>) -> Self
+```
+
+Creates a new poll card with the given `title` displayed in the header.
+
+---
+
+## Methods
+
+### `option`
+
+```rust
+pub fn option(self, label: impl Into<String>, votes: u32) -> Self
+```
+
+Appends a new option to the poll with the given `label` and `votes` count. The percentages and progress bars are calculated automatically based on the total sum of votes across all options.
+
+<Warning>
+  You can call this method up to 7 times. Exceeding this limit will cause `render_png()` to fail.
+</Warning>
+
+---
+
+### `header_label`
+
+```rust
+pub fn header_label(self, label: impl Into<String>) -> Self
+```
+
+Sets the small label above the main title. Defaults to `"POLL"`.
+
+---
+
+### `votes_label`
+
+```rust
+pub fn votes_label(self, label: impl Into<String>) -> Self
+```
+
+Sets the word appended after the total vote count in the footer. Defaults to `"votes"`.
+
+---
+
+### `render_png`
+
+```rust
+pub fn render_png(&self) -> Result<Vec<u8>>
+```
+
+Renders the currently built card into a PNG image. The result is a standard `Vec<u8>` that can be attached as a file.
+
+---
+
+## Example
+
+<Accordion title="Simple usage" defaultOpen>
+
+```rust
+use fluxer_poll::PollCard;
+use fluxer_builders::{MessagePayload, build_multipart_form, file::FileAttachment};
+
+let png = PollCard::new("Best language?")
+    .option("Rust", 42)
+    .option("TypeScript", 17)
+    .option("Python", 8)
+    .render_png()?;
+
+let file = FileAttachment::new("poll.png", png);
+let payload = MessagePayload::new()
+    .content("**Best language?**")
+    .build();
+let form = build_multipart_form(&payload, &[file]);
+
+rest.post_multipart::<serde_json::Value>(
+    &Routes::channel_messages(&channel_id),
+    form,
+).await?;
+```
+</Accordion>
+
+---
+
+## Full Bot Example
+
+A complete minimal bot implementing a `!poll` command. The bot dynamically updates the image in place using `edit_files` as users react to vote.
+
+<Accordion title="Full Bot Example">
+
+```toml Cargo.toml
+[dependencies]
+fluxer-core        = { version = "0.3.0", default-features = false }
+fluxer-builders    = "0.3.0"
+fluxer-rest        = "0.3.0"
+fluxer-types       = "0.3.0"
+fluxer-poll        = "0.3.0"
+serde_json         = "1"
+base64             = "0.22"
+tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing            = "0.1"
+rustls             = { version = "0.23", features = ["ring"] }
+```
+
+```rust
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use fluxer_builders::{build_multipart_form, file::FileAttachment, MessagePayload};
+use fluxer_core::client::{typed_events::DispatchEvent, Client, ClientOptions};
+use fluxer_poll::PollCard;
+use fluxer_rest::Rest;
+use fluxer_types::Routes;
+use serde_json::Value;
+
+const TOKEN: &str = "1478692632696393917.YeM3H8n7uCc91u5IN_D0iNjDwgRyC18AF-21exVY8uI";
+const EMOJIS: [&str; 7] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"];
+
+type PollStore = Arc<Mutex<HashMap<String, (String, String, Vec<String>)>>>;
+
+#[tokio::main]
+async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
+    tracing_subscriber::fmt().with_env_filter("info").init();
+
+    let mut client = Client::new(ClientOptions {
+        intents: 0,
+        wait_for_guilds: true,
+        ..Default::default()
+    });
+
+    let rest: Rest = client.rest.clone();
+    let polls: PollStore = Arc::new(Mutex::new(HashMap::new()));
+
+    client.on_typed(move |event| {
+        let rest = rest.clone();
+        let polls = polls.clone();
+        Box::pin(async move {
+            match event {
+                DispatchEvent::Ready => tracing::info!("Bot is ready"),
+
+                DispatchEvent::MessageCreate { message, .. } => {
+                    let text = message.content.trim();
+                    let Some(args) = text.strip_prefix("!poll") else { return };
+
+                    let parts: Vec<&str> = args.split('|').map(str::trim).collect();
+                    if parts.len() < 3 { return; }
+
+                    let title = parts[0].to_string();
+                    let labels: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+                    let mut card = PollCard::new(&title);
+                    for l in &labels { card = card.option(l, 0); }
+                    let Ok(png) = card.render_png() else { return };
+
+                    let payload = MessagePayload::new()
+                        .content(format!("**{title}**"))
+                        .build();
+                    let file = FileAttachment::new("poll.png", png);
+                    let form = build_multipart_form(&payload, &[file]);
+
+                    if let Ok(val) = rest.post_multipart::<Value>(
+                        &Routes::channel_messages(&message.channel_id),
+                        form,
+                    ).await {
+                        let id = val["id"].as_str().unwrap_or("").to_string();
+                        if let Some(msg) = fluxer_core::structures::message::Message::from_value(&val) {
+                            for emoji in EMOJIS.iter().take(labels.len()) {
+                                let _ = msg.add_reaction(&rest, emoji).await;
+                            }
+                        }
+                        polls.lock().await.insert(id, (message.channel_id, title, labels));
+                    }
+                }
+
+                DispatchEvent::MessageReactionAdd { reaction } => {
+
+                    let (channel_id, title, labels) = {
+                        let map = polls.lock().await;
+                        let Some(e) = map.get(&reaction.message_id) else { return };
+                        e.clone()
+                    };
+
+                    let valid = EMOJIS.iter().take(labels.len()).any(|e| *e == reaction.emoji_name.as_str());
+                    if !valid {
+                        let _ = rest.delete_route(&format!(
+                            "{}/{}",
+                            Routes::channel_message_reaction(&channel_id, &reaction.message_id, &reaction.emoji_name),
+                            reaction.user_id,
+                        )).await;
+                        return;
+                    }
+
+                    let mut card = PollCard::new(&title);
+                    for (i, label) in labels.iter().enumerate() {
+                        let count = rest.get::<Vec<Value>>(&format!(
+                            "{}?limit=100",
+                            Routes::channel_message_reaction(&channel_id, &reaction.message_id, EMOJIS[i]),
+                        )).await.map(|u| u.len().saturating_sub(1) as u32).unwrap_or(0);
+                        card = card.option(label, count);
+                    }
+
+                    match card.render_png() {
+                        Ok(png) => {
+                            if let Ok(val) = rest.get::<Value>(&Routes::channel_message(&channel_id, &reaction.message_id)).await {
+                                if let Some(msg) = fluxer_core::structures::message::Message::from_value(&val) {
+                                    let payload = MessagePayload::new().content(format!("**{title}**")).build();
+                                    let file = FileAttachment::new("poll.png", png);
+                                    let _ = msg.edit_files(&rest, &payload, &[file]).await;
+                                }
+                            }
+                        }
+                        Err(e) => tracing::error!("Render error: {e}"),
+                    }
+                }
+                _ => {}
+            }
+        })
+    });
+
+    if let Err(e) = client.login(TOKEN).await {
+        tracing::error!("login: {e:?}");
+    }
+}
+```
+</Accordion>
